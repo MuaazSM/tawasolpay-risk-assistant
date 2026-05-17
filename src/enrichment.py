@@ -7,3 +7,343 @@ and parsed campaign intelligence. Each row is an (asset_id, vuln_id) pair
 enriched with: kev_match, kev_ransomware_use, threat_intel_matches,
 campaign_matches, chain_partners, missing_controls.
 """
+
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+
+import pandas as pd
+
+from src.ingest import (
+    load_assets,
+    load_business_services,
+    load_threat_intel,
+    load_vulnerabilities,
+)
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "raw"
+_DEFAULT_REF_DIR = Path(__file__).resolve().parent.parent / "data" / "reference"
+_DEFAULT_PROCESSED_DIR = Path(__file__).resolve().parent.parent / "data" / "processed"
+
+_STALE_THRESHOLD_DAYS = 30
+
+
+# ---------------------------------------------------------------------------
+# Internal loaders for reference / processed data
+# ---------------------------------------------------------------------------
+
+
+def _load_kev(ref_dir: Path = _DEFAULT_REF_DIR) -> pd.DataFrame:
+    """Load CISA KEV catalog CSV.
+
+    Returns a DataFrame with cve_id as the key and a boolean
+    ransomware_known column (True when known_ransomware_use == "Known").
+    """
+    path = ref_dir / "cisa_kev.csv"
+    df = pd.read_csv(path, dtype=str, usecols=["cve_id", "known_ransomware_use"])
+    df["kev_ransomware_use"] = df["known_ransomware_use"].str.strip().str.lower() == "known"
+    # deduplicate — KEV should have unique CVEs but defensive
+    df = df.drop_duplicates(subset="cve_id", keep="first")
+    return df[["cve_id", "kev_ransomware_use"]]
+
+
+def _load_campaigns(processed_dir: Path = _DEFAULT_PROCESSED_DIR) -> list[dict]:
+    """Load parsed campaign intelligence from campaigns.json.
+
+    Returns the raw list of campaign dicts, each with keys:
+    name, associated_cves, targeted_asset_types, ttps, iocs.
+    """
+    path = processed_dir / "campaigns.json"
+    with open(path) as f:
+        return json.load(f)
+
+
+# ---------------------------------------------------------------------------
+# Enrichment helpers
+# ---------------------------------------------------------------------------
+
+
+def _merge_assets_vulns(
+    assets: pd.DataFrame, vulns: pd.DataFrame,
+) -> pd.DataFrame:
+    """Inner join vulnerabilities onto assets.
+
+    Join key: asset_id (assets.asset_id == vulns.asset_id).
+    Every vulnerability must have a matching asset; orphan vulns are logged
+    and dropped via inner join.
+    """
+    n_vulns_before = len(vulns)
+    merged = vulns.merge(assets, on="asset_id", how="inner", suffixes=("", "_asset"))
+    n_dropped = n_vulns_before - len(merged)
+    if n_dropped:
+        logger.warning(
+            "enrichment: %d vulnerability row(s) dropped — no matching asset_id",
+            n_dropped,
+        )
+    return merged
+
+
+def _merge_business_services(
+    df: pd.DataFrame, services: pd.DataFrame,
+) -> pd.DataFrame:
+    """Left join business service context onto the asset-vuln DataFrame.
+
+    Join key: business_service (df.business_service == services.business_service).
+    Assets without a matching service get defaults (business_criticality="Low",
+    empty compliance_scope, rto_hours=0).
+    """
+    # select only the columns we need from services to avoid clutter
+    svc_cols = [
+        "business_service", "business_impact", "compliance_scope",
+        "revenue_impact", "rto_hours",
+    ]
+    svc = services[svc_cols].copy()
+
+    # rename to match EnrichedRisk schema:
+    # - revenue_impact → business_criticality (the Criticality enum)
+    # - business_impact → business_impact_description (prose description)
+    svc = svc.rename(columns={
+        "revenue_impact": "business_criticality",
+        "business_impact": "business_impact_description",
+    })
+
+    merged = df.merge(svc, on="business_service", how="left")
+
+    n_missing = merged["business_criticality"].isna().sum()
+    if n_missing:
+        logger.warning(
+            "enrichment: %d row(s) have no matching business_service — "
+            "defaulting business_criticality to 'Low'",
+            n_missing,
+        )
+        merged["business_criticality"] = merged["business_criticality"].fillna("Low")
+        merged["business_impact_description"] = merged["business_impact_description"].fillna("")
+        merged["compliance_scope"] = merged["compliance_scope"].fillna("")
+        merged["rto_hours"] = merged["rto_hours"].fillna(0).astype(int)
+
+    return merged
+
+
+def _merge_kev(df: pd.DataFrame, kev: pd.DataFrame) -> pd.DataFrame:
+    """Left join CISA KEV data to flag actively exploited CVEs.
+
+    Join key: cve_id (df.cve_id == kev.cve_id).
+    Adds kev_match (bool) and kev_ransomware_use (bool) columns.
+    Synthetic CVEs (CVE-SYN-*, CICD-SYN-*) will never match KEV — that's
+    expected; the threat intel and campaign data catch those.
+    """
+    merged = df.merge(kev, on="cve_id", how="left", suffixes=("", "_kev"))
+
+    # kev_ransomware_use comes from the KEV join; NaN means no KEV match
+    merged["kev_match"] = merged["kev_ransomware_use"].notna()
+    merged["kev_ransomware_use"] = merged["kev_ransomware_use"].fillna(False)
+
+    n_kev = merged["kev_match"].sum()
+    logger.info("enrichment: %d / %d rows matched CISA KEV", n_kev, len(merged))
+
+    return merged
+
+
+def _add_threat_intel_matches(
+    df: pd.DataFrame, intel: pd.DataFrame,
+) -> pd.DataFrame:
+    """Aggregate threat intel matches per (asset_id, vuln_id) pair.
+
+    Join key: cve_id (df.cve_id == intel.matched_cve_or_control).
+    Adds threat_intel_matches column: list of intel_ids matching this CVE.
+    """
+    # build a lookup: cve → list of intel_ids
+    intel_by_cve = (
+        intel
+        .groupby("matched_cve_or_control")["intel_id"]
+        .apply(list)
+        .to_dict()
+    )
+
+    df["threat_intel_matches"] = df["cve_id"].map(
+        lambda cve: intel_by_cve.get(cve, [])
+    )
+    return df
+
+
+def _add_campaign_matches(
+    df: pd.DataFrame, campaigns: list[dict],
+) -> pd.DataFrame:
+    """Tag each row with campaigns whose exploit chain includes its CVE.
+
+    Uses the parsed campaigns.json. A campaign matches when the row's cve_id
+    appears in the campaign's associated_cves list.
+
+    Adds campaign_matches column: list of campaign names.
+    """
+    # build lookup: cve → list of campaign names
+    cve_to_campaigns: dict[str, list[str]] = {}
+    for campaign in campaigns:
+        for cve in campaign["associated_cves"]:
+            cve_to_campaigns.setdefault(cve, []).append(campaign["name"])
+
+    df["campaign_matches"] = df["cve_id"].map(
+        lambda cve: cve_to_campaigns.get(cve, [])
+    )
+
+    n_matched = (df["campaign_matches"].str.len() > 0).sum()
+    logger.info(
+        "enrichment: %d / %d rows matched at least one campaign", n_matched, len(df),
+    )
+    return df
+
+
+def _add_chain_partners(df: pd.DataFrame) -> pd.DataFrame:
+    """Identify exploit-chain partners: other vuln_ids on the same asset
+    sharing the same campaign.
+
+    For each row, chain_partners lists the cve_ids of other vulnerabilities
+    on the same asset that appear in at least one of the same campaigns.
+    This detects multi-link attack paths like CrimsonJackal's
+    CVE-2024-21762 + CVE-2024-55591 on asset A-1005.
+
+    Adds chain_partners column: list of partner cve_ids (not including self).
+    """
+    # only consider rows that have campaign matches
+    has_campaigns = df["campaign_matches"].str.len() > 0
+    campaign_rows = df.loc[has_campaigns, ["asset_id", "vuln_id", "cve_id", "campaign_matches"]].copy()
+
+    # explode campaigns so we can group by (asset_id, campaign)
+    exploded = campaign_rows.explode("campaign_matches")
+    exploded = exploded.rename(columns={"campaign_matches": "campaign"})
+
+    # for each (asset_id, campaign), collect all cve_ids
+    chain_groups = (
+        exploded
+        .groupby(["asset_id", "campaign"])["cve_id"]
+        .apply(set)
+        .reset_index()
+        .rename(columns={"cve_id": "chain_cves"})
+    )
+
+    # only keep groups with 2+ CVEs (single CVE = no chain)
+    chain_groups = chain_groups[chain_groups["chain_cves"].apply(len) >= 2]
+
+    # build a lookup: (asset_id, cve_id) → set of partner cve_ids
+    partner_lookup: dict[tuple[str, str], set[str]] = {}
+    for _, row in chain_groups.iterrows():
+        for cve in row["chain_cves"]:
+            key = (row["asset_id"], cve)
+            partners = row["chain_cves"] - {cve}
+            if key in partner_lookup:
+                partner_lookup[key] |= partners
+            else:
+                partner_lookup[key] = partners.copy()
+
+    df["chain_partners"] = df.apply(
+        lambda row: sorted(partner_lookup.get((row["asset_id"], row["cve_id"]), set())),
+        axis=1,
+    )
+
+    n_chained = (df["chain_partners"].str.len() > 0).sum()
+    if n_chained:
+        logger.info("enrichment: %d row(s) have chain partners", n_chained)
+
+    return df
+
+
+def _add_missing_controls(df: pd.DataFrame) -> pd.DataFrame:
+    """Flag missing security controls based on asset metadata.
+
+    Checks:
+    - no_edr: edr_installed != "Yes"
+    - stale_asset: last_seen_days > 30
+    - no_owner: owner_team is missing or blank
+
+    Adds missing_controls column: list of control gap labels.
+    """
+    def _check_controls(row: pd.Series) -> list[str]:
+        gaps: list[str] = []
+        if str(row.get("edr_installed", "")).strip().lower() != "yes":
+            gaps.append("no_edr")
+        if row.get("last_seen_days", 0) > _STALE_THRESHOLD_DAYS:
+            gaps.append("stale_asset")
+        owner = row.get("owner_team", "")
+        if pd.isna(owner) or str(owner).strip() == "":
+            gaps.append("no_owner")
+        return gaps
+
+    df["missing_controls"] = df.apply(_check_controls, axis=1)
+
+    n_with_gaps = (df["missing_controls"].str.len() > 0).sum()
+    logger.info("enrichment: %d / %d rows have missing controls", n_with_gaps, len(df))
+
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
+
+def build_enriched_risks(
+    data_dir: Path = _DEFAULT_DATA_DIR,
+    ref_dir: Path = _DEFAULT_REF_DIR,
+    processed_dir: Path = _DEFAULT_PROCESSED_DIR,
+) -> pd.DataFrame:
+    """Build the fully enriched risk DataFrame.
+
+    Loads all data sources, performs joins, and adds derived columns.
+    Each row is one (asset_id, vuln_id) pair with all asset fields, all
+    vulnerability fields, business service context, KEV flags, threat
+    intel matches, campaign matches, chain partners, and missing controls.
+
+    Join sequence:
+        1. vulns INNER JOIN assets ON asset_id
+        2. result LEFT JOIN business_services ON business_service
+        3. result LEFT JOIN cisa_kev ON cve_id
+        4. Aggregate threat_intel matches by cve_id
+        5. Tag campaign_matches from campaigns.json by cve_id
+        6. Compute chain_partners from campaign overlap on same asset
+        7. Flag missing_controls from asset metadata
+
+    Returns:
+        DataFrame with columns matching EnrichedRisk schema fields plus
+        raw source columns for downstream use.
+    """
+    # load all sources
+    assets = load_assets(data_dir)
+    vulns = load_vulnerabilities(data_dir)
+    services = load_business_services(data_dir)
+    intel = load_threat_intel(data_dir)
+    kev = _load_kev(ref_dir)
+    campaigns = _load_campaigns(processed_dir)
+
+    logger.info(
+        "enrichment: loaded %d assets, %d vulns, %d services, %d intel, %d KEV, %d campaigns",
+        len(assets), len(vulns), len(services), len(intel), len(kev), len(campaigns),
+    )
+
+    # step 1: inner join vulns ↔ assets on asset_id
+    df = _merge_assets_vulns(assets, vulns)
+
+    # step 2: left join business services on business_service
+    df = _merge_business_services(df, services)
+
+    # step 3: left join KEV on cve_id
+    df = _merge_kev(df, kev)
+
+    # step 4: aggregate threat intel matches by cve_id
+    df = _add_threat_intel_matches(df, intel)
+
+    # step 5: tag campaign matches from campaigns.json
+    df = _add_campaign_matches(df, campaigns)
+
+    # step 6: compute chain partners (same asset + same campaign)
+    df = _add_chain_partners(df)
+
+    # step 7: flag missing controls from asset metadata
+    df = _add_missing_controls(df)
+
+    logger.info("enrichment: built %d enriched risk rows", len(df))
+
+    return df

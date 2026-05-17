@@ -123,7 +123,10 @@ class EnrichedRisk(BaseModel):
 
     service_id: str
     service_name: str = ""
-    business_impact: Criticality
+    business_criticality: Criticality
+    business_impact_description: str = ""
+    compliance_scope: str = ""
+    rto_hours: int = Field(default=0, ge=0)
 
     cvss: float = Field(ge=0.0, le=10.0)
     severity: Criticality

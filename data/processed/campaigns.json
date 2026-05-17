@@ -1,1 +1,100 @@
-[]
+[
+  {
+    "name": "CrimsonJackal — Gateway Breaker",
+    "associated_cves": [
+      "CVE-2024-21762",
+      "CVE-2024-55591"
+    ],
+    "targeted_asset_types": [
+      "Financial services and fintech firms",
+      "UAE and Saudi Arabia"
+    ],
+    "ttps": [
+      "Exploit chain: CVE-2024-21762 (Fortinet SSL-VPN heap overflow) → CVE-2024-55591 (Fortinet auth bypass)",
+      "Ransomware: LockBit 3.0 variant observed in post-exploitation",
+      "Confidence: High — confirmed victim in Dubai this week"
+    ],
+    "iocs": [
+      "Inbound connections from 185.220.x.x/24 range",
+      "VPN log entries with empty User-Agent strings",
+      "scheduled tasks named \"SystemUpdate\" or \"WinDefend\"."
+    ]
+  },
+  {
+    "name": "RedMantis — Collaboration Breach",
+    "associated_cves": [
+      "CVE-SYN-2026-0004",
+      "CVE-2023-22527",
+      "CVE-2023-22515"
+    ],
+    "targeted_asset_types": [
+      "Engineering-heavy SaaS and technology firms",
+      "MENA region"
+    ],
+    "ttps": [
+      "Exploit chain: CVE-SYN-2026-0004 (Project Management RCE) → CVE-2023-22527 (Confluence OGNL injection) → CVE-2023-22515 (Confluence broken access control)",
+      "Ransomware: Akira ransomware observed",
+      "Confidence: High — multiple victims in technology sector this month"
+    ],
+    "iocs": [
+      "Large outbound data transfers over port 443 from Jira/Confluence hosts",
+      "new admin accounts created after business hours",
+      "git clone activity from unknown IPs."
+    ]
+  },
+  {
+    "name": "SilentForge — Build Chain Theft",
+    "associated_cves": [
+      "CVE-2024-27198",
+      "CVE-2024-23897",
+      "CICD-SYN-001"
+    ],
+    "targeted_asset_types": [
+      "Technology firms with exposed CI/CD infrastructure",
+      "Global"
+    ],
+    "ttps": [
+      "Exploit chain: CVE-2024-27198 (JetBrains TeamCity auth bypass) → CVE-2024-23897 (Jenkins file read) → CICD-SYN-001 (exposed build secrets)",
+      "Confidence: High — active campaign, multiple confirmed victims globally"
+    ],
+    "iocs": [
+      "Unusual service account logins to TeamCity/Jenkins outside business hours",
+      "new API tokens created via build automation",
+      "secrets accessed from unusual source IPs."
+    ]
+  },
+  {
+    "name": "IronVeil — CitrixBleed Exploitation",
+    "associated_cves": [
+      "CVE-2023-4966"
+    ],
+    "targeted_asset_types": [
+      "Financial services with Citrix NetScaler load balancers",
+      "Global"
+    ],
+    "ttps": [
+      "Exploit chain: CVE-2023-4966 (Citrix NetScaler session token leak)",
+      "Ransomware: ALPHV/BlackCat observed in post-exploitation",
+      "Confidence: High — ongoing mass exploitation since Q4 2023, still active"
+    ],
+    "iocs": [
+      "HTTP GET requests to /oauth/idp/.well-known/openid-configuration with unusual parameters",
+      "high volume of 302 redirects in NetScaler logs",
+      "anomalous session token reuse from foreign IPs."
+    ]
+  },
+  {
+    "name": "WinterViper — API Gateway Takeover",
+    "associated_cves": [
+      "CVE-SYN-2026-0011"
+    ],
+    "targeted_asset_types": [
+      "API-first fintech and payment platforms"
+    ],
+    "ttps": [
+      "Exploit chain: CVE-SYN-2026-0011 (API Admin Interface Exposed)",
+      "Confidence: High — new actor, confirmed activity in Gulf region"
+    ],
+    "iocs": []
+  }
+]
