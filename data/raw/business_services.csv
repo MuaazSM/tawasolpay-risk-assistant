@@ -1,0 +1,2 @@
+service_id,service_name,criticality
+SVC-001,Payments,High

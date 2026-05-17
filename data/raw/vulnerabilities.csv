@@ -1,0 +1,2 @@
+vuln_id,asset_id,cve_id,severity,description
+V-001,A-001,CVE-2023-0001,High,Example vuln

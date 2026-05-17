@@ -1,0 +1,1 @@
+This folder contains a Next.js frontend (placeholder).

@@ -1,0 +1,39 @@
+[project]
+name = "tawasolpay-risk-assistant"
+version = "0.1.0"
+description = "Cyber risk ranking system combining structured vulnerability data with NIST 800-53 RAG"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "pydantic>=2.5",
+    "pandas>=2.1",
+    "chromadb>=0.4",
+    "sentence-transformers>=2.3",
+    "google-generativeai>=0.5",
+    "groq>=0.5",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src", "api"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
