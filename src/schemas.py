@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -215,4 +215,10 @@ class TopRiskOutput(BaseModel):
     score_breakdown: ScoreBreakdown
     explanation: RiskExplanation
     retrieved_controls: list[NistControl]
-    faithfulness_passed: bool = True
+    faithfulness_violations: list[str] = Field(default_factory=list)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def faithfulness_passed(self) -> bool:
+        """True when the explanation cites only entities present in the evidence."""
+        return len(self.faithfulness_violations) == 0

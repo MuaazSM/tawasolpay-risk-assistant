@@ -1,16 +1,22 @@
 """Generate structured risk explanations via LLM.
 
-Entry point: generate_explanation(risk, controls, campaigns) -> RiskExplanation
+Entry point: generate_explanation(risk, controls, campaigns) -> (RiskExplanation, list[str])
 
 Constructs a prompt containing the full risk evidence packet, retrieved NIST
 control texts, and relevant campaign data. Output schema: headline,
 why_it_ranks_here, business_impact, cited_cves, cited_campaigns,
 cited_controls, recommended_actions. Strict citation rules enforced in
 prompt with few-shot examples of good vs hallucinated output.
+
+After generation, the faithfulness checker validates all citations against the
+evidence packet. On failure, one retry is attempted with violations injected
+into the prompt. If the retry also fails, the explanation is returned with a
+faithfulness_failed flag.
 """
 
 import logging
 
+from .faithfulness import validate_faithfulness
 from .llm_client import generate_structured
 from .schemas import Campaign, EnrichedRisk, NistControl, RiskExplanation
 
@@ -109,7 +115,8 @@ def _build_allowlists(
     controls: list[NistControl],
 ) -> str:
     """Explicit allowlists so the LLM knows exactly what it may cite."""
-    allowed_cves = sorted({risk.cve_id})
+    # threat_intel_matches are CVEs surfaced by threat intel — valid citations
+    allowed_cves = sorted({risk.cve_id} | set(risk.threat_intel_matches))
     allowed_campaigns = sorted(set(risk.campaign_matches))
     allowed_controls = sorted({c.control_id for c in controls})
 
@@ -186,16 +193,34 @@ Write precisely. Every claim must trace back to the evidence provided. Hallucina
 # ---------------------------------------------------------------------------
 
 
+def _build_retry_prompt(base_prompt: str, violations: list[str]) -> str:
+    """Append faithfulness violations to the prompt for a correction retry."""
+    violation_block = "\n".join(f"  - {v}" for v in violations)
+    return (
+        f"{base_prompt}\n\n"
+        "=== FAITHFULNESS VIOLATIONS FROM YOUR PREVIOUS ATTEMPT ===\n"
+        "Your previous response failed the citation check. Fix ALL of the\n"
+        "following violations. Do NOT cite any entity not in the allowlists.\n\n"
+        f"{violation_block}\n\n"
+        "Respond with a corrected JSON object matching the RiskExplanation schema."
+    )
+
+
 def generate_explanation(
     risk: EnrichedRisk,
     controls: list[NistControl],
     campaigns: list[Campaign],
-) -> RiskExplanation:
+) -> tuple[RiskExplanation, list[str]]:
     """Generate an LLM-written explanation for a single scored risk.
 
     Constructs a prompt from the risk evidence, retrieved NIST controls,
     and matched campaign data, then calls the LLM with strict citation
-    rules. The response is validated against the RiskExplanation schema.
+    rules. The response is validated against the RiskExplanation schema
+    and checked for faithfulness to the evidence packet.
+
+    If the faithfulness check fails, one retry is attempted with violations
+    injected into the prompt. If the retry also fails, the explanation is
+    returned anyway with the violation list so the caller can surface them.
 
     Args:
         risk: A single enriched risk row (output of enrichment + scoring).
@@ -204,7 +229,9 @@ def generate_explanation(
             included in the prompt.
 
     Returns:
-        A validated RiskExplanation with citations constrained to evidence.
+        A tuple of (explanation, faithfulness_violations). An empty list
+        means all citations checked out. A non-empty list contains human-
+        readable descriptions of each violation.
 
     Raises:
         pydantic.ValidationError: If the LLM output fails schema validation
@@ -216,7 +243,7 @@ def generate_explanation(
     campaigns_text = _build_campaigns_block(risk, campaigns)
     allowlists = _build_allowlists(risk, controls)
 
-    prompt = (
+    base_prompt = (
         f"{_SYSTEM_PROMPT}\n\n"
         f"{_FEW_SHOT}\n\n"
         f"Now produce the explanation for this risk:\n\n"
@@ -235,52 +262,37 @@ def generate_explanation(
         len(controls),
     )
 
-    explanation = generate_structured(prompt, RiskExplanation)
+    # --- First attempt ---
+    explanation = generate_structured(base_prompt, RiskExplanation)
+    passed, violations = validate_faithfulness(explanation, risk, controls)
 
-    # post-generation citation check — log warnings for any violations
-    # (the faithfulness gate in the pipeline will reject, but we surface
-    # issues early for debugging)
-    _warn_citation_violations(explanation, risk, controls)
+    if passed:
+        return explanation, []
 
-    return explanation
+    # --- Retry once with violations injected ---
+    logger.info(
+        "Retrying explanation for %s on %s (%d violations)",
+        risk.cve_id,
+        risk.asset_name,
+        len(violations),
+    )
+    retry_prompt = _build_retry_prompt(base_prompt, violations)
+    explanation = generate_structured(retry_prompt, RiskExplanation)
+    passed, violations = validate_faithfulness(explanation, risk, controls)
 
-
-# ---------------------------------------------------------------------------
-# Post-generation citation sanity check
-# ---------------------------------------------------------------------------
-
-
-def _warn_citation_violations(
-    explanation: RiskExplanation,
-    risk: EnrichedRisk,
-    controls: list[NistControl],
-) -> None:
-    """Log warnings if the LLM cited entities outside the evidence packet.
-
-    Does not raise — the pipeline's faithfulness check is the hard gate.
-    This is a diagnostic aid.
-    """
-    allowed_cves = {risk.cve_id}
-    allowed_campaigns = set(risk.campaign_matches)
-    allowed_controls = {c.control_id for c in controls}
-
-    bad_cves = set(explanation.cited_cves) - allowed_cves
-    bad_campaigns = set(explanation.cited_campaigns) - allowed_campaigns
-    bad_controls = set(explanation.cited_controls) - allowed_controls
-
-    if bad_cves:
-        logger.warning(
-            "Hallucinated CVEs in explanation for %s: %s", risk.cve_id, bad_cves,
+    if passed:
+        logger.info(
+            "Retry succeeded for %s on %s", risk.cve_id, risk.asset_name,
         )
-    if bad_campaigns:
-        logger.warning(
-            "Hallucinated campaigns in explanation for %s: %s",
-            risk.cve_id,
-            bad_campaigns,
-        )
-    if bad_controls:
-        logger.warning(
-            "Hallucinated controls in explanation for %s: %s",
-            risk.cve_id,
-            bad_controls,
-        )
+        return explanation, []
+
+    # --- Both attempts failed — return with violations ---
+    logger.error(
+        "Faithfulness check failed after retry for %s on %s: %s",
+        risk.cve_id,
+        risk.asset_name,
+        violations,
+    )
+    return explanation, violations
+
+
