@@ -59,20 +59,50 @@ def _get_groq_client():
 # ---------------------------------------------------------------------------
 
 
+def _strip_unsupported_schema_fields(obj):
+    """Recursively strip JSON Schema fields that Gemini's API doesn't support.
+
+    Gemini accepts: type, properties, required, items, enum.
+    It rejects: minLength, maxLength, minItems, maxItems, title, description,
+    default, examples, $defs, allOf, anyOf, oneOf.
+    We keep the full Pydantic schema for client-side validation but send Gemini
+    only the structural subset it can enforce.
+    """
+    unsupported = {
+        "minLength", "maxLength", "minItems", "maxItems",
+        "title", "description", "default", "examples",
+        "$defs", "allOf", "anyOf", "oneOf",
+    }
+    if isinstance(obj, dict):
+        return {
+            k: _strip_unsupported_schema_fields(v)
+            for k, v in obj.items()
+            if k not in unsupported
+        }
+    if isinstance(obj, list):
+        return [_strip_unsupported_schema_fields(item) for item in obj]
+    return obj
+
+
 def _generate_gemini(prompt: str, schema: type[BaseModel], temperature: float) -> BaseModel:
     """Call Gemini 2.5 Flash with native structured output."""
     import google.generativeai as genai
 
     model = _get_gemini_model()
+
+    # Gemini's response_schema rejects Pydantic constraint fields (minLength,
+    # maxItems, etc.). Strip them — we still validate via Pydantic afterward.
+    clean_schema = _strip_unsupported_schema_fields(schema.model_json_schema())
+
     config = genai.GenerationConfig(
         response_mime_type="application/json",
-        response_schema=schema,
+        response_schema=clean_schema,
         temperature=temperature,
     )
     response = model.generate_content(prompt, generation_config=config)
 
-    # Gemini returns text that should already conform to the schema, but we
-    # validate through Pydantic to guarantee type safety.
+    # Validate through Pydantic to guarantee type safety and enforce constraints
+    # that Gemini's schema enforcement cannot (minLength, minItems, etc.).
     raw = response.text
     parsed = json.loads(raw)
     return schema.model_validate(parsed)

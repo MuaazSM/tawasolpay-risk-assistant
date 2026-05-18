@@ -178,7 +178,7 @@ class RiskExplanation(BaseModel):
     why_it_ranks_here: str = Field(min_length=1)
     business_impact: str = Field(min_length=1)
     cited_cves: list[str] = Field(min_length=1)
-    cited_campaigns: list[str] = Field(min_length=1)
+    cited_campaigns: list[str] = Field(default_factory=list)
     cited_controls: list[str] = Field(min_length=1)
     recommended_actions: list[str] = Field(min_length=3, max_length=5)
 
