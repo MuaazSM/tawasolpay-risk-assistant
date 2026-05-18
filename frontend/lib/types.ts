@@ -54,6 +54,8 @@ export interface TopRiskOutput {
   asset_type?: string;
   owner_team?: string | null;
   business_service?: string;
+  asset_criticality?: Criticality;
+  service_revenue_impact?: Criticality;
   business_criticality?: Criticality;
   internet_exposed?: boolean;
   kev_match?: boolean;

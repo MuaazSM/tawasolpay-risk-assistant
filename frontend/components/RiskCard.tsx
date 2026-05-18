@@ -236,6 +236,19 @@ export function RiskCard({ risk }: RiskCardProps) {
                   <MetaRow
                     label="criticality"
                     value={risk.business_criticality}
+                    highlight={risk.business_criticality === "Critical"}
+                  />
+                )}
+                {risk.asset_criticality && (
+                  <MetaRow
+                    label="asset_crit"
+                    value={risk.asset_criticality}
+                  />
+                )}
+                {risk.service_revenue_impact && (
+                  <MetaRow
+                    label="svc_revenue"
+                    value={risk.service_revenue_impact}
                   />
                 )}
               </div>

@@ -123,6 +123,8 @@ class EnrichedRisk(BaseModel):
 
     service_id: str
     service_name: str = ""
+    asset_criticality: Criticality = "Medium"
+    service_revenue_impact: Criticality = "Low"
     business_criticality: Criticality
     business_impact_description: str = ""
     compliance_scope: str = ""
@@ -215,6 +217,7 @@ class TopRiskOutput(BaseModel):
     score_breakdown: ScoreBreakdown
     explanation: RiskExplanation
     retrieved_controls: list[NistControl]
+    ransomware_match: bool = False
     faithfulness_violations: list[str] = Field(default_factory=list)
 
     @computed_field  # type: ignore[prop-decorator]

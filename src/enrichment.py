@@ -31,6 +31,15 @@ _DEFAULT_PROCESSED_DIR = Path(__file__).resolve().parent.parent / "data" / "proc
 
 _STALE_THRESHOLD_DAYS = 30
 
+# criticality ordering for max() computation — higher index = more critical
+_CRITICALITY_RANK: dict[str, int] = {
+    "Low": 0,
+    "Medium": 1,
+    "High": 2,
+    "Critical": 3,
+}
+_RANK_TO_CRITICALITY: dict[int, str] = {v: k for k, v in _CRITICALITY_RANK.items()}
+
 
 # ---------------------------------------------------------------------------
 # Internal loaders for reference / processed data
@@ -103,27 +112,46 @@ def _merge_business_services(
     ]
     svc = services[svc_cols].copy()
 
-    # rename to match EnrichedRisk schema:
-    # - revenue_impact → business_criticality (the Criticality enum)
+    # rename to preserve provenance:
+    # - revenue_impact → service_revenue_impact (service-level criticality)
     # - business_impact → business_impact_description (prose description)
     svc = svc.rename(columns={
-        "revenue_impact": "business_criticality",
+        "revenue_impact": "service_revenue_impact",
         "business_impact": "business_impact_description",
     })
 
     merged = df.merge(svc, on="business_service", how="left")
 
-    n_missing = merged["business_criticality"].isna().sum()
+    n_missing = merged["service_revenue_impact"].isna().sum()
     if n_missing:
         logger.warning(
             "enrichment: %d row(s) have no matching business_service — "
-            "defaulting business_criticality to 'Low'",
+            "defaulting service_revenue_impact to 'Low'",
             n_missing,
         )
-        merged["business_criticality"] = merged["business_criticality"].fillna("Low")
+        merged["service_revenue_impact"] = merged["service_revenue_impact"].fillna("Low")
         merged["business_impact_description"] = merged["business_impact_description"].fillna("")
         merged["compliance_scope"] = merged["compliance_scope"].fillna("")
         merged["rto_hours"] = merged["rto_hours"].fillna(0).astype(int)
+
+    # preserve asset-level criticality under a distinct name
+    merged["asset_criticality"] = merged["criticality"]
+
+    # business_criticality = max(asset.criticality, service.revenue_impact)
+    # where Critical > High > Medium > Low. This captures the worst-case
+    # interpretation: a High-criticality asset underlying a Critical revenue
+    # service (e.g., CitrixBleed on Payment Processing) scores Critical, and
+    # a Critical asset on a High revenue service (e.g., VPN edges on Remote
+    # Access) also scores Critical. Neither signal alone tells the whole story.
+    merged["business_criticality"] = merged.apply(
+        lambda row: _RANK_TO_CRITICALITY[
+            max(
+                _CRITICALITY_RANK.get(row["asset_criticality"], 0),
+                _CRITICALITY_RANK.get(row["service_revenue_impact"], 0),
+            )
+        ],
+        axis=1,
+    )
 
     return merged
 

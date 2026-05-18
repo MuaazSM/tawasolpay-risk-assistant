@@ -62,6 +62,8 @@ def _row_to_enriched_risk(row: pd.Series) -> EnrichedRisk:
         owner=row.get("owner_team") or None,
         service_id=row.get("business_service", ""),
         service_name=row.get("business_service", ""),
+        asset_criticality=row.get("asset_criticality", "Medium"),
+        service_revenue_impact=row.get("service_revenue_impact", "Low"),
         business_criticality=row["business_criticality"],
         business_impact_description=row.get("business_impact_description", ""),
         compliance_scope=row.get("compliance_scope", ""),
@@ -219,6 +221,7 @@ def run_pipeline(
             score_breakdown=breakdown,
             explanation=explanation,
             retrieved_controls=controls,
+            ransomware_match=risk.ransomware_match,
             faithfulness_violations=violations,
         )
         results.append(output)
