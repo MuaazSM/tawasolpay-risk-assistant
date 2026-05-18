@@ -10,7 +10,7 @@ COPY pyproject.toml .
 COPY src/ src/
 COPY api/ api/
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir . onnxscript
 
 COPY data/raw/ data/raw/
 COPY data/reference/ data/reference/
