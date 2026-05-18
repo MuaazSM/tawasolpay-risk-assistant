@@ -154,19 +154,46 @@ def _add_threat_intel_matches(
     """Aggregate threat intel matches per (asset_id, vuln_id) pair.
 
     Join key: cve_id (df.cve_id == intel.matched_cve_or_control).
-    Adds threat_intel_matches column: list of intel_ids matching this CVE.
+    Adds columns:
+        threat_intel_matches: list of intel_ids matching this CVE
+        threat_intel_weaponized: True if any match has exploit_maturity == "Weaponized"
+        threat_intel_max_maturity: highest exploit_maturity among matches
+        threat_intel_ransomware: True if any match has ransomware_association == True
     """
-    # build a lookup: cve → list of intel_ids
-    intel_by_cve = (
-        intel
-        .groupby("matched_cve_or_control")["intel_id"]
-        .apply(list)
-        .to_dict()
-    )
+    # maturity ordering — higher index = more mature / dangerous
+    maturity_rank = {
+        "Not Applicable": 0,
+        "Social Engineering": 1,
+        "Proof of Concept": 2,
+        "Commodity Exploit": 3,
+        "Active Exploitation": 4,
+        "Weaponized": 5,
+    }
 
-    df["threat_intel_matches"] = df["cve_id"].map(
-        lambda cve: intel_by_cve.get(cve, [])
-    )
+    # build per-CVE aggregates in one pass
+    intel_by_cve: dict[str, list[str]] = {}
+    weaponized_by_cve: dict[str, bool] = {}
+    max_maturity_by_cve: dict[str, str] = {}
+    ransomware_by_cve: dict[str, bool] = {}
+
+    for cve, group in intel.groupby("matched_cve_or_control"):
+        intel_by_cve[cve] = group["intel_id"].tolist()
+
+        maturities = group["exploit_maturity"].dropna().tolist()
+        weaponized_by_cve[cve] = "Weaponized" in maturities
+        if maturities:
+            max_maturity_by_cve[cve] = max(maturities, key=lambda m: maturity_rank.get(m, -1))
+        else:
+            max_maturity_by_cve[cve] = "Not Available"
+
+        # ransomware_association is already a bool from ingest
+        ransomware_by_cve[cve] = group["ransomware_association"].any()
+
+    df["threat_intel_matches"] = df["cve_id"].map(lambda cve: intel_by_cve.get(cve, []))
+    df["threat_intel_weaponized"] = df["cve_id"].map(lambda cve: weaponized_by_cve.get(cve, False))
+    df["threat_intel_max_maturity"] = df["cve_id"].map(lambda cve: max_maturity_by_cve.get(cve, "Not Available"))
+    df["threat_intel_ransomware"] = df["cve_id"].map(lambda cve: ransomware_by_cve.get(cve, False))
+
     return df
 
 
@@ -280,6 +307,52 @@ def _add_missing_controls(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _add_campaign_ransomware(
+    df: pd.DataFrame, campaigns: list[dict],
+) -> pd.DataFrame:
+    """Flag rows where a matched campaign mentions ransomware in its TTPs.
+
+    Adds campaign_ransomware column: True if any campaign in campaign_matches
+    has "ransomware" (case-insensitive) in its TTPs list.
+    """
+    # build lookup: campaign name → has ransomware in TTPs
+    campaign_has_ransomware: dict[str, bool] = {}
+    for campaign in campaigns:
+        has_ransom = any("ransomware" in ttp.lower() for ttp in campaign.get("ttps", []))
+        campaign_has_ransomware[campaign["name"]] = has_ransom
+
+    df["campaign_ransomware"] = df["campaign_matches"].apply(
+        lambda matches: any(campaign_has_ransomware.get(name, False) for name in matches)
+    )
+
+    return df
+
+
+def _compute_derived_signals(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute union signals from individual source booleans.
+
+    Adds:
+        ransomware_match: kev_ransomware_use OR threat_intel_ransomware OR campaign_ransomware
+        active_exploitation_signal: kev_match OR threat_intel_weaponized OR has campaign matches
+    """
+    df["ransomware_match"] = (
+        df["kev_ransomware_use"] | df["threat_intel_ransomware"] | df["campaign_ransomware"]
+    )
+
+    df["active_exploitation_signal"] = (
+        df["kev_match"] | df["threat_intel_weaponized"] | (df["campaign_matches"].str.len() > 0)
+    )
+
+    n_ransom = df["ransomware_match"].sum()
+    n_active = df["active_exploitation_signal"].sum()
+    logger.info(
+        "enrichment: %d ransomware_match, %d active_exploitation_signal out of %d rows",
+        n_ransom, n_active, len(df),
+    )
+
+    return df
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -301,10 +374,12 @@ def build_enriched_risks(
         1. vulns INNER JOIN assets ON asset_id
         2. result LEFT JOIN business_services ON business_service
         3. result LEFT JOIN cisa_kev ON cve_id
-        4. Aggregate threat_intel matches by cve_id
+        4. Aggregate threat_intel matches by cve_id (+ weaponized, maturity, ransomware)
         5. Tag campaign_matches from campaigns.json by cve_id
         6. Compute chain_partners from campaign overlap on same asset
         7. Flag missing_controls from asset metadata
+        8. Flag campaign_ransomware from campaign TTPs
+        9. Compute derived union signals (ransomware_match, active_exploitation_signal)
 
     Returns:
         DataFrame with columns matching EnrichedRisk schema fields plus
@@ -343,6 +418,12 @@ def build_enriched_risks(
 
     # step 7: flag missing controls from asset metadata
     df = _add_missing_controls(df)
+
+    # step 8: flag campaign ransomware from campaign TTPs
+    df = _add_campaign_ransomware(df, campaigns)
+
+    # step 9: compute derived union signals
+    df = _compute_derived_signals(df)
 
     logger.info("enrichment: built %d enriched risk rows", len(df))
 

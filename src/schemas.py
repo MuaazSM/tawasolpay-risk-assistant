@@ -137,9 +137,17 @@ class EnrichedRisk(BaseModel):
     kev_match: bool = False
     kev_ransomware_use: bool = False
     threat_intel_matches: list[str] = Field(default_factory=list)
+    threat_intel_weaponized: bool = False
+    threat_intel_max_maturity: str = "Not Available"
+    threat_intel_ransomware: bool = False
     campaign_matches: list[str] = Field(default_factory=list)
+    campaign_ransomware: bool = False
     chain_partners: list[str] = Field(default_factory=list)
     missing_controls: list[str] = Field(default_factory=list)
+
+    # derived union signals — computed in enrichment, consumed by scoring
+    ransomware_match: bool = False
+    active_exploitation_signal: bool = False
 
 
 # ---------------------------------------------------------------------------
