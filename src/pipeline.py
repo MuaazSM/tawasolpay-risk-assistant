@@ -128,6 +128,7 @@ def _timed(label: str):
 def run_pipeline(
     top_k: int = 5,
     use_cache: bool = False,
+    light_refresh: bool = False,
 ) -> list[TopRiskOutput]:
     """Run the full risk analysis pipeline.
 
@@ -135,11 +136,24 @@ def run_pipeline(
         top_k: Number of top risks to return.
         use_cache: If True, load/save enriched and scored DataFrames from
             pickle cache in data/processed/ to skip recomputation.
+        light_refresh: If True, re-use cached enriched data but re-run
+            scoring and explanation generation. Does not re-fetch external
+            data (CISA KEV, threat intel CSVs, threat report). Requires
+            an existing enriched cache — raises ValueError if missing.
+            Implies use_cache=True for enrichment loading.
 
     Returns:
         A list of TopRiskOutput objects, one per top-k risk, with
         explanations, retrieved controls, and faithfulness status.
     """
+    if light_refresh:
+        if not _ENRICHED_CACHE.exists():
+            raise ValueError(
+                "light_refresh requires enriched cache at "
+                f"{_ENRICHED_CACHE} — run a full pipeline first"
+            )
+        use_cache = True
+
     # --- Step 1: Enrich ---
     if use_cache and _ENRICHED_CACHE.exists():
         logger.info("pipeline: loading enriched cache from %s", _ENRICHED_CACHE)
@@ -154,7 +168,8 @@ def run_pipeline(
             logger.info("pipeline: cached enriched to %s", _ENRICHED_CACHE)
 
     # --- Step 2: Score ---
-    if use_cache and _SCORED_CACHE.exists():
+    # light_refresh always re-scores to pick up scoring formula changes
+    if use_cache and not light_refresh and _SCORED_CACHE.exists():
         logger.info("pipeline: loading scored cache from %s", _SCORED_CACHE)
         with open(_SCORED_CACHE, "rb") as f:
             scored = pickle.load(f)
