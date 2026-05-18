@@ -115,8 +115,9 @@ def _build_allowlists(
     controls: list[NistControl],
 ) -> str:
     """Explicit allowlists so the LLM knows exactly what it may cite."""
-    # threat_intel_matches are CVEs surfaced by threat intel — valid citations
-    allowed_cves = sorted({risk.cve_id} | set(risk.threat_intel_matches))
+    # chain_partners are same-campaign CVEs on the same asset — valid citations
+    # that let the LLM describe the full attack chain
+    allowed_cves = sorted({risk.cve_id} | set(risk.chain_partners))
     allowed_campaigns = sorted(set(risk.campaign_matches))
     allowed_controls = sorted({c.control_id for c in controls})
 

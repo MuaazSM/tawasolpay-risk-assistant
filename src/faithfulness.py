@@ -33,8 +33,10 @@ def validate_faithfulness(
     violations: list[str] = []
 
     # --- CVE check ---
-    # The risk's own CVE plus any CVEs surfaced via threat intel are valid
-    allowed_cves = {risk.cve_id} | set(risk.threat_intel_matches)
+    # The risk's own CVE plus chain partners (same-campaign CVEs on same asset)
+    # are valid citations. threat_intel_matches contains TI row IDs (e.g.
+    # TI-3001), not CVEs, so they don't belong in the CVE allowlist.
+    allowed_cves = {risk.cve_id} | set(risk.chain_partners)
     bad_cves = set(explanation.cited_cves) - allowed_cves
     if bad_cves:
         violations.append(
