@@ -16,6 +16,7 @@ env/
 
 # Data artifacts (keep raw/ and reference/ tracked)
 data/processed/nist_chroma/
+data/processed/onnx_model/
 data/processed/*.pkl
 data/processed/*.pickle
 

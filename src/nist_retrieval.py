@@ -26,8 +26,9 @@ import logging
 import re
 from pathlib import Path
 
+import numpy as np
+
 import chromadb
-from sentence_transformers import SentenceTransformer
 
 from src.schemas import EnrichedRisk, NistControl
 
@@ -98,16 +99,82 @@ _KEYWORD_TO_FAMILIES: dict[str, list[str]] = {
 # Singleton loaders — embedding model and Chroma collection
 # ---------------------------------------------------------------------------
 
-_model: SentenceTransformer | None = None
+_ONNX_MODEL_DIR = _PROJECT_ROOT / "data" / "processed" / "onnx_model"
+
+
+class OnnxEmbedder:
+    """Lightweight embedding using ONNX Runtime instead of PyTorch.
+
+    Produces identical embeddings to SentenceTransformer('bge-small-en-v1.5')
+    but uses ~60MB RAM instead of ~400MB because it doesn't load the PyTorch
+    framework. The ONNX model is exported during docker build by
+    scripts/export_onnx_model.py.
+    """
+
+    def __init__(self, model_dir: Path) -> None:
+        import onnxruntime as ort
+        from tokenizers import Tokenizer
+
+        self._session = ort.InferenceSession(
+            str(model_dir / "model.onnx"),
+            providers=["CPUExecutionProvider"],
+        )
+        self._tokenizer = Tokenizer.from_file(str(model_dir / "tokenizer.json"))
+        self._input_names = [inp.name for inp in self._session.get_inputs()]
+
+    def encode(self, text: str, normalize_embeddings: bool = True) -> np.ndarray:
+        """Encode a single text string, matching SentenceTransformer.encode interface."""
+        encoding = self._tokenizer.encode(text)
+
+        input_ids = np.array([encoding.ids], dtype=np.int64)
+        attention_mask = np.array([encoding.attention_mask], dtype=np.int64)
+
+        feeds: dict[str, np.ndarray] = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+        }
+        # bge-small is BERT-based and expects token_type_ids
+        if "token_type_ids" in self._input_names:
+            feeds["token_type_ids"] = np.zeros_like(input_ids)
+
+        # output shape: [1, seq_len, 384]
+        last_hidden_state = self._session.run(None, feeds)[0]
+
+        # CLS pooling — bge-small uses the first token's embedding
+        embedding = last_hidden_state[0, 0, :]
+
+        if normalize_embeddings:
+            norm = np.linalg.norm(embedding)
+            if norm > 0:
+                embedding = embedding / norm
+
+        return embedding
+
+
+_model: OnnxEmbedder | None = None
 _collection: chromadb.Collection | None = None
 
 
-def _get_embedding_model() -> SentenceTransformer:
-    """Load the embedding model once and cache it."""
+def _get_embedding_model() -> OnnxEmbedder:
+    """Load the ONNX embedding model once and cache it.
+
+    Falls back to SentenceTransformer for local development if the ONNX
+    model hasn't been exported yet (run scripts/export_onnx_model.py).
+    """
     global _model
     if _model is None:
-        logger.info("Loading embedding model %s", _EMBEDDING_MODEL)
-        _model = SentenceTransformer(_EMBEDDING_MODEL)
+        onnx_path = _ONNX_MODEL_DIR / "model.onnx"
+        if onnx_path.exists():
+            logger.info("Loading ONNX embedding model from %s", _ONNX_MODEL_DIR)
+            _model = OnnxEmbedder(_ONNX_MODEL_DIR)
+        else:
+            # local dev fallback — sentence-transformers with full PyTorch
+            logger.info(
+                "ONNX model not found at %s, falling back to SentenceTransformer",
+                onnx_path,
+            )
+            from sentence_transformers import SentenceTransformer
+            _model = SentenceTransformer(_EMBEDDING_MODEL)  # type: ignore[assignment]
     return _model
 
 
@@ -332,7 +399,7 @@ def _parse_document(doc: str) -> dict[str, str | list[str]]:
 
 def _query_chroma(
     collection: chromadb.Collection,
-    model: SentenceTransformer,
+    model: OnnxEmbedder,
     query: str,
     n_results: int,
 ) -> tuple[list[float], list[str], list[dict]]:
