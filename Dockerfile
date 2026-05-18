@@ -41,6 +41,7 @@ COPY pyproject.toml .
 
 COPY --from=builder /app/data/ data/
 
-EXPOSE 10000
+ENV PORT=10000
+EXPOSE ${PORT}
 
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "10000"]
+CMD uvicorn api.main:app --host 0.0.0.0 --port ${PORT}
