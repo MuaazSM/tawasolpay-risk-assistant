@@ -13,12 +13,12 @@ export function Header({ risks, health }: HeaderProps) {
 
   return (
     <header className="border-b border-bg-border bg-bg-base/80 backdrop-blur-md sticky top-0 z-20">
-      {/* Top utility strip — dense, monospace, operational. */}
-      <div className="border-b border-bg-border/40 px-6 py-2">
+      {/* Top utility strip */}
+      <div className="border-b border-bg-border/40 px-6 py-2.5">
         <div className="max-w-[1180px] mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-wider text-ink-dim">
+          <div className="flex items-center gap-2.5 font-mono text-xs uppercase tracking-wider text-ink-dim">
             <span
-              className={`inline-block h-1.5 w-1.5 rounded-full ${
+              className={`inline-block h-2 w-2 rounded-full ${
                 health?.pipeline_ready
                   ? "bg-verified animate-pulse-soft"
                   : "bg-warning animate-pulse-soft"
@@ -30,7 +30,7 @@ export function Header({ risks, health }: HeaderProps) {
             <span className="text-ink-faint">·</span>
             <span className="text-ink-faint">v0.1.0</span>
           </div>
-          <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-wider text-ink-dim">
+          <div className="flex items-center gap-4 font-mono text-xs uppercase tracking-wider text-ink-dim">
             <span>
               refreshed{" "}
               <span className="text-ink-muted">
@@ -60,19 +60,19 @@ export function Header({ risks, health }: HeaderProps) {
               <div className="eyebrow mb-3">
                 Risk register · top {risks.length}
               </div>
-              <h1 className="font-sans text-[28px] font-bold text-ink leading-tight max-w-2xl tracking-tight">
+              <h1 className="font-sans text-4xl font-bold text-ink leading-tight max-w-2xl tracking-tight">
                 Top risks by{" "}
                 <span className="text-tier-act-now">deterministic</span>{" "}
                 priority
               </h1>
-              <p className="mt-3 text-ink-muted text-[13px] max-w-xl leading-relaxed">
+              <p className="mt-3 text-ink-muted text-base max-w-xl leading-relaxed">
                 Ranked by tier gates and weighted scoring across exposure,
                 exploitation evidence, business impact, and chain matches.
                 Explanations are NIST 800-53 grounded and citation-verified.
               </p>
             </div>
 
-            {/* Stats cluster — the numbers that matter at a glance. */}
+            {/* Stats cluster */}
             <div className="flex items-end gap-6">
               <Stat
                 value={actNowCount}
@@ -80,13 +80,13 @@ export function Header({ risks, health }: HeaderProps) {
                 accent="text-tier-act-now"
                 glow={actNowCount > 0}
               />
-              <div className="h-10 w-px bg-bg-border" />
+              <div className="h-12 w-px bg-bg-border" />
               <Stat
                 value={actSoonCount}
                 label={pluralize(actSoonCount, "act-soon risk")}
                 accent="text-tier-act-soon"
               />
-              <div className="h-10 w-px bg-bg-border" />
+              <div className="h-12 w-px bg-bg-border" />
               <Stat
                 value={ransomwareCount}
                 label="ransomware"
@@ -115,7 +115,7 @@ function Stat({
     <div className="text-right">
       <div
         className={`
-          font-mono text-4xl font-semibold tabular-nums leading-none
+          font-mono text-6xl font-semibold tabular-nums leading-none
           ${accent}
           ${glow ? "drop-shadow-[0_0_12px_rgba(239,68,68,0.3)]" : ""}
         `}

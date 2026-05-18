@@ -24,7 +24,7 @@ export function RiskCard({ risk }: RiskCardProps) {
       `}
       style={{ "--tier-accent": tier.accent } as React.CSSProperties}
     >
-      {/* Left accent stripe — the tier color as a hard visual signal. */}
+      {/* Left accent stripe */}
       <div
         className="absolute left-0 top-0 bottom-0 w-[3px]"
         style={{ backgroundColor: tier.accent }}
@@ -36,17 +36,17 @@ export function RiskCard({ risk }: RiskCardProps) {
         type="button"
         onClick={() => setExpanded((v) => !v)}
         className="
-          w-full text-left pl-7 pr-6 py-5
+          w-full text-left pl-8 pr-6 py-6
           focus:outline-none focus-visible:bg-bg-sunken
           transition-colors cursor-pointer
         "
         aria-expanded={expanded}
       >
-        <div className="flex items-start gap-5">
-          {/* Rank — large, monospace, monumental. */}
-          <div className="flex-shrink-0 w-12 pt-0.5">
+        <div className="flex items-start gap-6">
+          {/* Rank */}
+          <div className="flex-shrink-0 w-16 pt-0.5">
             <div
-              className="font-mono text-[32px] font-semibold tabular-nums leading-none"
+              className="font-mono text-5xl font-semibold tabular-nums leading-none"
               style={{ color: `color-mix(in srgb, ${tier.accent} 50%, #6b6862)` }}
             >
               {String(risk.rank).padStart(2, "0")}
@@ -55,29 +55,29 @@ export function RiskCard({ risk }: RiskCardProps) {
 
           {/* Center: identity + headline */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-3 mb-2 flex-wrap">
+            <div className="flex items-center gap-3 mb-2.5 flex-wrap">
               <TierBadge tier={risk.tier} />
               {risk.faithfulness_passed ? (
-                <span className="font-mono text-[10px] tracking-wider text-verified/70 uppercase flex items-center gap-1.5">
-                  <span className="inline-block h-1 w-1 rounded-full bg-verified" />
+                <span className="font-mono text-xs tracking-wider text-verified/70 uppercase flex items-center gap-1.5">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-verified" />
                   verified
                 </span>
               ) : (
-                <span className="font-mono text-[10px] tracking-wider text-warning uppercase flex items-center gap-1.5">
-                  <span className="inline-block h-1 w-1 rounded-full bg-warning animate-pulse-soft" />
+                <span className="font-mono text-xs tracking-wider text-warning uppercase flex items-center gap-1.5">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-warning animate-pulse-soft" />
                   unverified
                 </span>
               )}
-              <span className="font-mono text-[11px] text-ink-faint">
+              <span className="font-mono text-sm text-ink-faint">
                 {risk.cve_id}
               </span>
             </div>
 
-            <h2 className="font-sans text-[17px] font-semibold text-ink leading-snug mb-2">
+            <h2 className="font-sans text-xl font-semibold text-ink leading-snug mb-2">
               {risk.explanation.headline}
             </h2>
 
-            <div className="flex items-center gap-3 flex-wrap font-mono text-[11px] text-ink-muted tracking-terminal">
+            <div className="flex items-center gap-3 flex-wrap font-mono text-sm text-ink-muted tracking-terminal">
               <span className="text-ink">{risk.asset_name}</span>
               {risk.vulnerability_name && (
                 <>
@@ -95,12 +95,12 @@ export function RiskCard({ risk }: RiskCardProps) {
           </div>
 
           {/* Right: score + expand chevron */}
-          <div className="flex-shrink-0 flex items-center gap-4">
+          <div className="flex-shrink-0 flex items-center gap-5">
             <div className="text-right">
-              <div className="font-mono text-2xl font-semibold text-ink tabular-nums leading-none">
+              <div className="font-mono text-4xl font-semibold text-ink tabular-nums leading-none">
                 {risk.score.toFixed(1)}
               </div>
-              <div className="eyebrow mt-1">score</div>
+              <div className="eyebrow mt-1.5">score</div>
             </div>
             <div
               className={`
@@ -109,9 +109,9 @@ export function RiskCard({ risk }: RiskCardProps) {
               `}
               aria-hidden
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                 <path
-                  d="M3 5l4 4 4-4"
+                  d="M4 7l5 5 5-5"
                   stroke="currentColor"
                   strokeWidth="1.5"
                   strokeLinecap="square"
@@ -123,21 +123,21 @@ export function RiskCard({ risk }: RiskCardProps) {
         </div>
       </button>
 
-      {/* Expanded content — only rendered when expanded for perf. */}
+      {/* Expanded content */}
       {expanded && (
-        <div className="border-t border-bg-border pl-7 pr-6 py-6 animate-fade-in">
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-8">
+        <div className="border-t border-bg-border pl-8 pr-6 py-7 animate-fade-in">
+          <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-10">
             {/* Left column: prose explanation + evidence */}
             <div className="space-y-0">
               <Section title="Why this ranks here">
-                <p className="text-ink leading-relaxed text-[14px]">
+                <p className="text-ink leading-relaxed text-base">
                   {risk.explanation.why_it_ranks_here}
                 </p>
               </Section>
 
               <div className="section-divider">
                 <Section title="Business impact">
-                  <p className="text-ink leading-relaxed text-[14px]">
+                  <p className="text-ink leading-relaxed text-base">
                     {risk.explanation.business_impact}
                   </p>
                 </Section>
@@ -173,13 +173,13 @@ export function RiskCard({ risk }: RiskCardProps) {
 
               <div className="section-divider">
                 <Section title="Recommended actions">
-                  <ol className="space-y-2.5 list-none">
+                  <ol className="space-y-3 list-none">
                     {risk.explanation.recommended_actions.map((action, i) => (
                       <li
                         key={i}
-                        className="flex gap-3 text-[14px] text-ink leading-relaxed"
+                        className="flex gap-3 text-base text-ink leading-relaxed"
                       >
-                        <span className="font-mono text-ink-faint tabular-nums flex-shrink-0 mt-px">
+                        <span className="font-mono text-sm text-ink-faint tabular-nums flex-shrink-0 mt-0.5">
                           {String(i + 1).padStart(2, "0")}
                         </span>
                         <span>{action}</span>
@@ -193,8 +193,8 @@ export function RiskCard({ risk }: RiskCardProps) {
                 risk.faithfulness_violations.length > 0 && (
                   <div className="section-divider">
                     <Section title="Faithfulness violations">
-                      <div className="border border-warning/20 bg-warning/5 p-3">
-                        <ul className="space-y-1 text-[12px] text-warning font-mono">
+                      <div className="border border-warning/20 bg-warning/5 p-4">
+                        <ul className="space-y-1.5 text-sm text-warning font-mono">
                           {risk.faithfulness_violations.map((v, i) => (
                             <li key={i}>— {v}</li>
                           ))}
@@ -207,11 +207,11 @@ export function RiskCard({ risk }: RiskCardProps) {
 
             {/* Right column: score breakdown + metadata panels */}
             <div className="space-y-4">
-              <div className="border border-bg-border bg-bg-sunken/50 p-5">
+              <div className="border border-bg-border bg-bg-sunken/50 p-6">
                 <ScoreBars breakdown={risk.score_breakdown} tier={risk.tier} />
               </div>
 
-              <div className="border border-bg-border bg-bg-sunken/50 p-5 space-y-3">
+              <div className="border border-bg-border bg-bg-sunken/50 p-6 space-y-3.5">
                 <div className="eyebrow mb-2">Asset context</div>
                 <MetaRow label="asset_id" value={risk.asset_id} />
                 <MetaRow label="vuln_id" value={risk.vuln_id} />
@@ -244,7 +244,7 @@ export function RiskCard({ risk }: RiskCardProps) {
               {(risk.kev_match !== undefined ||
                 risk.campaign_matches ||
                 risk.ransomware_match !== undefined) && (
-                <div className="border border-bg-border bg-bg-sunken/50 p-5 space-y-3">
+                <div className="border border-bg-border bg-bg-sunken/50 p-6 space-y-3.5">
                   <div className="eyebrow mb-2">Exploitation signals</div>
                   {risk.kev_match !== undefined && (
                     <SignalRow label="CISA KEV" active={risk.kev_match} />
@@ -292,7 +292,7 @@ function Section({
 }) {
   return (
     <section>
-      <h3 className="eyebrow mb-2">{title}</h3>
+      <h3 className="eyebrow mb-2.5">{title}</h3>
       {children}
     </section>
   );
@@ -309,10 +309,10 @@ function EvidenceRow({
 }) {
   return (
     <div className="flex items-start gap-3 flex-wrap">
-      <span className="font-mono text-[10px] uppercase tracking-wider text-ink-dim pt-1.5 w-20 flex-shrink-0">
+      <span className="font-mono text-xs uppercase tracking-wider text-ink-dim pt-2 w-28 flex-shrink-0">
         {label}
       </span>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-2">
         {items.map((item) => (
           <EvidencePill key={item} label={item} kind={kind} />
         ))}
@@ -332,11 +332,11 @@ function MetaRow({
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <span className="font-mono text-[10px] uppercase tracking-wider text-ink-dim">
+      <span className="font-mono text-xs uppercase tracking-wider text-ink-dim">
         {label}
       </span>
       <span
-        className={`font-mono text-[11px] truncate ${
+        className={`font-mono text-sm truncate ${
           highlight ? "text-tier-act-now" : "text-ink"
         }`}
       >
@@ -357,14 +357,14 @@ function SignalRow({
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2.5">
         <span
-          className={`inline-block h-1.5 w-1.5 rounded-full transition-colors ${
+          className={`inline-block h-2 w-2 rounded-full transition-colors ${
             active ? "bg-tier-act-now" : "bg-bg-border-strong"
           }`}
         />
         <span
-          className={`font-mono text-[11px] ${
+          className={`font-mono text-sm ${
             active ? "text-ink" : "text-ink-dim"
           }`}
         >
@@ -372,7 +372,7 @@ function SignalRow({
         </span>
       </div>
       {detail && (
-        <span className="font-mono text-[10px] text-ink-muted text-right">
+        <span className="font-mono text-xs text-ink-muted text-right">
           {detail}
         </span>
       )}

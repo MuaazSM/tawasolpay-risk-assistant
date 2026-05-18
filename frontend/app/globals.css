@@ -63,12 +63,12 @@
 @layer components {
   /* Reusable label style for the small uppercase eyebrows. */
   .eyebrow {
-    @apply font-mono text-[10px] uppercase tracking-wider text-ink-dim;
+    @apply font-mono text-xs uppercase tracking-wider text-ink-dim;
   }
 
   /* Pill for evidence tags (CVEs, campaigns, controls). */
   .pill {
-    @apply inline-flex items-center gap-1.5 border border-bg-border bg-bg-raised px-2 py-1 font-mono text-[11px] tracking-terminal text-ink-muted transition-colors;
+    @apply inline-flex items-center gap-1.5 border border-bg-border bg-bg-raised px-2.5 py-1.5 font-mono text-[13px] tracking-terminal text-ink-muted transition-colors;
   }
   .pill:hover {
     @apply border-bg-border-strong text-ink;

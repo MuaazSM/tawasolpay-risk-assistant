@@ -18,7 +18,7 @@ export function EvidencePill({ label, kind = "neutral", prefix }: EvidencePillPr
   return (
     <span className={`pill ${accentClass}`}>
       {prefix && (
-        <span className="text-ink-dim text-[9px] tracking-wider uppercase">
+        <span className="text-ink-dim text-[11px] tracking-wider uppercase">
           {prefix}
         </span>
       )}

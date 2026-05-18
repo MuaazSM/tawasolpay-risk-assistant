@@ -1,0 +1,35 @@
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Environment (secrets must come from env vars, not the image)
+.env
+
+# Processed caches (rebuilt during docker build)
+data/processed/nist_chroma/
+data/processed/*.pkl
+data/processed/*.pickle
+
+# Frontend (not part of backend image)
+frontend/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Docs / tests / claude config
+docs/
+tests/
+.claude/
+.gstack/
+CLAUDE.md

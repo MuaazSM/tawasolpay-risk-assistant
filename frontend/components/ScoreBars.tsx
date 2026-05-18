@@ -37,10 +37,10 @@ export function ScoreBars({ breakdown, tier }: ScoreBarsProps) {
   const tierAccent = TIER_CONFIG[tier].accent;
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-baseline justify-between mb-3">
+    <div className="space-y-2.5">
+      <div className="flex items-baseline justify-between mb-4">
         <span className="eyebrow">Score decomposition</span>
-        <span className="font-mono text-xs text-ink-muted tabular-nums">
+        <span className="font-mono text-base text-ink-muted tabular-nums">
           total{" "}
           <span className="text-ink font-medium">{breakdown.total.toFixed(1)}</span>
           <span className="text-ink-faint"> / 100</span>
@@ -59,11 +59,11 @@ export function ScoreBars({ breakdown, tier }: ScoreBarsProps) {
             ? ""
             : "bg-ink/30";
         return (
-          <div key={key} className="grid grid-cols-[130px_1fr_56px] items-center gap-3">
-            <span className="font-mono text-[11px] text-ink-muted tracking-terminal truncate">
+          <div key={key} className="grid grid-cols-[150px_1fr_70px] items-center gap-3">
+            <span className="font-mono text-sm text-ink-muted tracking-terminal truncate">
               {COMPONENT_LABEL[key]}
             </span>
-            <div className="h-1.5 bg-bg-sunken overflow-hidden">
+            <div className="h-2.5 bg-bg-sunken overflow-hidden">
               <div
                 className={`h-full transition-all duration-700 ease-out ${barColor}`}
                 style={{
@@ -76,7 +76,7 @@ export function ScoreBars({ breakdown, tier }: ScoreBarsProps) {
               />
             </div>
             <span
-              className={`font-mono text-[11px] tabular-nums text-right ${
+              className={`font-mono text-sm tabular-nums text-right ${
                 isZero ? "text-ink-faint" : "text-ink"
               }`}
             >
