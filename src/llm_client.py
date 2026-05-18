@@ -1,8 +1,155 @@
 """LLM client with primary/fallback strategy.
 
-Entry point: generate_structured(prompt: str, schema: type[BaseModel], temperature: float = 0.1) -> BaseModel
+Entry point: generate_structured(prompt, schema, temperature) -> BaseModel instance.
 
-Primary: Gemini 2.5 Flash with response_mime_type="application/json" and
-response_schema. Fallback: Groq (Llama 3.3 70B) with JSON mode.
-Both API keys loaded from environment. Logs which provider served each call.
+Primary: Gemini 2.5 Flash via google-generativeai SDK with native JSON schema
+enforcement (response_mime_type="application/json", response_schema=schema).
+Fallback: Groq (Llama 3.3 70B) with JSON mode + Pydantic validation on our side.
+
+Both API keys loaded from environment at first call. Logs which provider served
+each request so we can monitor fallback frequency.
 """
+
+import json
+import logging
+import os
+
+from pydantic import BaseModel, ValidationError
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Lazy-initialized clients (avoids import-time side effects and missing keys
+# crashing unrelated tests)
+# ---------------------------------------------------------------------------
+
+_gemini_model = None
+_groq_client = None
+
+
+def _get_gemini_model():
+    """Initialize the Gemini GenerativeModel on first use."""
+    global _gemini_model
+    if _gemini_model is None:
+        import google.generativeai as genai
+
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY not set in environment")
+        genai.configure(api_key=api_key)
+        _gemini_model = genai.GenerativeModel("gemini-2.5-flash")
+    return _gemini_model
+
+
+def _get_groq_client():
+    """Initialize the Groq client on first use."""
+    global _groq_client
+    if _groq_client is None:
+        from groq import Groq
+
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            raise RuntimeError("GROQ_API_KEY not set in environment")
+        _groq_client = Groq(api_key=api_key)
+    return _groq_client
+
+
+# ---------------------------------------------------------------------------
+# Provider-specific generation
+# ---------------------------------------------------------------------------
+
+
+def _generate_gemini(prompt: str, schema: type[BaseModel], temperature: float) -> BaseModel:
+    """Call Gemini 2.5 Flash with native structured output."""
+    import google.generativeai as genai
+
+    model = _get_gemini_model()
+    config = genai.GenerationConfig(
+        response_mime_type="application/json",
+        response_schema=schema,
+        temperature=temperature,
+    )
+    response = model.generate_content(prompt, generation_config=config)
+
+    # Gemini returns text that should already conform to the schema, but we
+    # validate through Pydantic to guarantee type safety.
+    raw = response.text
+    parsed = json.loads(raw)
+    return schema.model_validate(parsed)
+
+
+def _generate_groq(prompt: str, schema: type[BaseModel], temperature: float) -> BaseModel:
+    """Call Groq (Llama 3.3 70B) with JSON mode + schema instruction in prompt."""
+    client = _get_groq_client()
+
+    # Groq's JSON mode requires the word "JSON" in the prompt. We append the
+    # schema so the model knows the expected structure.
+    schema_instruction = (
+        "\n\nRespond with valid JSON matching this schema exactly:\n"
+        f"{json.dumps(schema.model_json_schema(), indent=2)}"
+    )
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt + schema_instruction}],
+        temperature=temperature,
+        response_format={"type": "json_object"},
+    )
+
+    raw = response.choices[0].message.content
+    parsed = json.loads(raw)
+    return schema.model_validate(parsed)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def generate_structured(
+    prompt: str,
+    schema: type[BaseModel],
+    temperature: float = 0.1,
+) -> BaseModel:
+    """Generate a structured LLM response validated against a Pydantic schema.
+
+    Tries Gemini 2.5 Flash first. On any failure (rate limit, network error,
+    malformed response, validation error), falls back to Groq Llama 3.3 70B.
+    If both providers fail, raises the Groq exception.
+
+    Args:
+        prompt: The full prompt to send to the LLM.
+        schema: A Pydantic BaseModel subclass defining the expected output shape.
+        temperature: Sampling temperature. Low by default for deterministic explanations.
+
+    Returns:
+        An instance of `schema` populated with the LLM's response.
+
+    Raises:
+        RuntimeError: If the required API key env var is missing for both providers.
+        Exception: If both Gemini and Groq fail, the Groq exception is raised.
+    """
+    # Try Gemini first
+    try:
+        result = _generate_gemini(prompt, schema, temperature)
+        logger.info("LLM call served by: Gemini 2.5 Flash")
+        return result
+    except Exception as gemini_err:
+        logger.warning(
+            "Gemini failed (%s: %s), falling back to Groq",
+            type(gemini_err).__name__,
+            gemini_err,
+        )
+
+    # Fallback to Groq
+    try:
+        result = _generate_groq(prompt, schema, temperature)
+        logger.info("LLM call served by: Groq (Llama 3.3 70B)")
+        return result
+    except Exception as groq_err:
+        logger.error(
+            "Both LLM providers failed. Groq error: %s: %s",
+            type(groq_err).__name__,
+            groq_err,
+        )
+        raise
