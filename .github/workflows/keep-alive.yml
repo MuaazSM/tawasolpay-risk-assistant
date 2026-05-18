@@ -1,0 +1,9 @@
+name: Keep Render Alive
+on:
+  schedule:
+    - cron: '*/14 * * * *'
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -sf https://tawasolpay-risk-assistant.onrender.com/health || true
