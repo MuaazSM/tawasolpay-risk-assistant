@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body {
+    background: #0a0a0b;
+    color: #e8e6e3;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    /* Atmospheric gradients — a faint red warning bleed from the top,
+       blue from the left edge, and a warm amber from the bottom-right. */
+    background-image:
+      radial-gradient(ellipse 80% 50% at 70% -5%, rgba(239, 68, 68, 0.07) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 80% at -5% 40%, rgba(59, 130, 246, 0.04) 0%, transparent 50%),
+      radial-gradient(ellipse 50% 40% at 90% 100%, rgba(245, 158, 11, 0.03) 0%, transparent 50%);
+    min-height: 100vh;
+  }
+
+  /* Dot grid overlay — gives the dark background tactile depth
+     without being loud enough to compete with the data. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image: radial-gradient(circle, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  /* Subtle scrollbar that matches the aesthetic. */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1f1f23;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #2a2a30;
+  }
+
+  /* Selection — uses the act_now red as a brand signal. */
+  ::selection {
+    background: rgba(239, 68, 68, 0.25);
+    color: #ffffff;
+  }
+}
+
+@layer components {
+  /* Reusable label style for the small uppercase eyebrows. */
+  .eyebrow {
+    @apply font-mono text-[10px] uppercase tracking-wider text-ink-dim;
+  }
+
+  /* Pill for evidence tags (CVEs, campaigns, controls). */
+  .pill {
+    @apply inline-flex items-center gap-1.5 border border-bg-border bg-bg-raised px-2 py-1 font-mono text-[11px] tracking-terminal text-ink-muted transition-colors;
+  }
+  .pill:hover {
+    @apply border-bg-border-strong text-ink;
+  }
+
+  /* Animated stagger helper — apply to a container, children get delay.
+     Uses fill-mode 'both' so the 0% keyframe applies before delay starts
+     and the 100% keyframe persists after — avoids the SSR opacity:0 trap. */
+  .stagger > * {
+    animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .stagger > *:nth-child(1)  { animation-delay: 0.05s; }
+  .stagger > *:nth-child(2)  { animation-delay: 0.12s; }
+  .stagger > *:nth-child(3)  { animation-delay: 0.19s; }
+  .stagger > *:nth-child(4)  { animation-delay: 0.26s; }
+  .stagger > *:nth-child(5)  { animation-delay: 0.33s; }
+  .stagger > *:nth-child(6)  { animation-delay: 0.40s; }
+
+  /* Glow effect — applied to risk cards on hover. Uses a CSS variable
+     for the tier color so each card glows in its own accent. */
+  .card-glow {
+    transition: box-shadow 0.3s ease-out, border-color 0.3s ease-out;
+  }
+  .card-glow:hover {
+    box-shadow:
+      0 0 0 1px var(--tier-accent, transparent),
+      0 4px 24px -4px color-mix(in srgb, var(--tier-accent, transparent) 15%, transparent);
+  }
+
+  /* Section divider used in expanded card content. */
+  .section-divider {
+    @apply border-t border-bg-border/50 pt-5 mt-5;
+  }
+}
