@@ -1,5 +1,7 @@
 # TawasolPay Cyber Risk Assistant
 
+> AI Engineering Intern Assessment for Hive Pro
+
 Ranks the top 5 cyber risks for a fictional fintech (TawasolPay) by combining structured vulnerability data, asset context, threat intelligence, and semantic retrieval over NIST 800-53 controls. The ranking is fully deterministic. LLMs write explanations, not rankings.
 
 **Live demo:** [Frontend](https://tawasolpay-risk-assistant.vercel.app/) | [API docs](https://tawasolpay-risk-assistant.onrender.com/docs) | [GitHub](https://github.com/MuaazSM/tawasolpay-risk-assistant)
@@ -55,7 +57,7 @@ Actual JSON returned by `GET /risks/top?k=5` (first risk, `retrieved_controls` t
   "explanation": {
     "headline": "Critical Fortinet SSL-VPN RCE on internet-exposed vpn-edge-01 gateway actively exploited by CrimsonJackal campaign.",
     "why_it_ranks_here": "CVE-2024-21762 carries a CVSS of 9.8 with weaponized exploit maturity and is listed in the CISA KEV catalog, confirming active exploitation in the wild. The CrimsonJackal — Gateway Breaker campaign specifically targets financial services and fintech firms, and this asset is internet-exposed with Critical business criticality. Chain amplification applies because a second CrimsonJackal CVE is present on the same asset.",
-    "business_impact": "Compromise of vpn-edge-01 gives attackers a network entry point into the Remote Access service. The CrimsonJackal campaign deploys LockBit 3.0 ransomware post-exploitation, which could halt transaction processing and trigger regulatory notification requirements under ISO 27001 compliance scope.",
+    "business_impact": "Compromise of vpn-edge-01 gives attackers a network entry point into the Remote Access service. The CrimsonJackal campaign deploys LockBit 3.0 ransomware post-exploitation, which could halt transaction processing and increase incident-response and compliance obligations for an ISO 27001-scoped service.",
     "cited_cves": ["CVE-2024-21762", "CVE-2024-55591"],
     "cited_campaigns": ["CrimsonJackal — Gateway Breaker"],
     "cited_controls": ["SC-12.5", "SC-7.7", "SI-2"],
@@ -71,6 +73,8 @@ Actual JSON returned by `GET /risks/top?k=5` (first risk, `retrieved_controls` t
   "faithfulness_passed": true
 }
 ```
+
+The assignment requires each risk to surface: asset, vulnerability, matched threat intel, business service at risk, and plain-English explanation. In the response above: `asset_name` is the asset, `cve_id` + `explanation.headline` identify the vulnerability, `explanation.cited_campaigns` carries matched threat intel, `explanation.business_impact` names the business service ("Remote Access service"), and the `explanation` object as a whole is the plain-English output.
 
 Full top-5 ranking:
 
@@ -104,7 +108,7 @@ The frontend renders the same JSON as an operations-style risk register. Each ca
 
 **Deterministic scoring, not LLM ranking.** The ranking is the most consequential output of the system. A CISO who asks "why is #1 above #2?" deserves a score decomposition (`exposure +15, active ransomware +15, chain bonus +15, ...`), not "the LLM concluded it was riskier." LLMs have no information beyond the structured fields the scorer already reads. They would add non-determinism, latency, and an explainability gap.
 
-**Tier gates + weighted score.** Pure additive scoring lets many small factors bury large ones (five medium issues on a dev server outscore three severe ones on a payment gateway). Pure multiplicative scoring zeroes out non-exposed assets that still matter (CI/CD, domain controllers). Tier gates encode structural rules categorically, and the weighted score breaks ties within each tier. Tier names (`act_now`, `act_soon`, `track`, `monitor`) follow CISA's SSVC vocabulary.
+**Tier gates + weighted score.** Pure additive scoring lets many small factors bury large ones (five medium issues on a dev server outscore three severe ones on a payment gateway). Pure multiplicative scoring zeroes out non-exposed assets that still matter (CI/CD, domain controllers). Tier gates encode structural rules categorically, and the weighted score breaks ties within each tier. The tiering approach is inspired by CISA SSVC's action-oriented philosophy: prioritize vulnerabilities by exploitation context and mission impact, not by technical severity alone.
 
 **Chain amplification (+15, tier-promoting).** When the same asset carries multiple CVEs matching the same active campaign, the system is looking at a validated multi-step attack path, not two independent findings. The +15 bonus promotes risks across tier boundaries when the asset is critical, and also contributes to within-tier ranking. A confirmed chain is genuinely worse than a single exploit, and both effects are intentional.
 
@@ -144,7 +148,7 @@ In normal operation (temperature 0.1), all 5 risks pass on first attempt. The re
 
 ---
 
-## What this would need to be operational
+## What I would improve with one more day
 
 **Backtested scoring weights from historical incident data.** The +15 chain bonus, the 20-point exploitation evidence weight, the tier gate thresholds: these are hand-tuned to produce correct rankings on this assessment's dataset. They work, and the perturbation tests verify structural invariants survive weight changes. But the weights are not empirically validated against real-world outcomes. Given another day, I would build a calibration harness: take a set of historical incidents (which vulnerabilities were actually exploited, which assets were actually compromised), run the scorer against the pre-incident state, and measure how well the ranking predicted incident priority. That turns "the weights feel right" into "the weights correlate with observed outcomes at r=0.X", which is the difference between a prototype and a defensible operational tool.
 

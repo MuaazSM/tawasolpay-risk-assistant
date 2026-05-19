@@ -1,9 +1,6 @@
 """Build the NIST 800-53 Rev 5 Chroma vector index.
 
-Downloads the OSCAL JSON from NIST CSRC, parses each control into a chunk
-(ID, title, family, statement, discussion, related controls), embeds with
-BAAI/bge-small-en-v1.5, and persists to data/processed/nist_chroma/.
-Idempotent with --force flag to rebuild from scratch.
+Idempotent. Use --force to rebuild from scratch.
 """
 
 import argparse
@@ -19,7 +16,7 @@ from sentence_transformers import SentenceTransformer
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-# NIST OSCAL catalog — authoritative source for SP 800-53 Rev 5 controls
+# NIST OSCAL catalog: authoritative source for SP 800-53 Rev 5 controls
 OSCAL_URL = (
     "https://raw.githubusercontent.com/usnistgov/oscal-content"
     "/main/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_catalog.json"
@@ -33,10 +30,6 @@ COLLECTION_NAME = "nist_800_53_r5"
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 
 
-# ---------------------------------------------------------------------------
-# OSCAL download
-# ---------------------------------------------------------------------------
-
 
 def download_oscal(force: bool = False) -> dict:
     """Download the OSCAL catalog JSON and cache locally.
@@ -45,11 +38,11 @@ def download_oscal(force: bool = False) -> dict:
     """
     if OSCAL_CACHE_PATH.exists() and not force:
         cached = json.loads(OSCAL_CACHE_PATH.read_text(encoding="utf-8"))
-        # placeholder file has an empty controls list — treat as missing
+        # placeholder file has an empty controls list, treat as missing
         if "catalog" in cached:
             logger.info("Using cached OSCAL catalog at %s", OSCAL_CACHE_PATH)
             return cached
-        logger.info("Cached file is a placeholder — downloading fresh copy")
+        logger.info("Cached file is a placeholder, downloading fresh copy")
 
     logger.info("Downloading OSCAL catalog from %s", OSCAL_URL)
     req = urllib.request.Request(
@@ -64,10 +57,6 @@ def download_oscal(force: bool = False) -> dict:
     logger.info("Cached OSCAL catalog to %s", OSCAL_CACHE_PATH)
     return data
 
-
-# ---------------------------------------------------------------------------
-# OSCAL parsing
-# ---------------------------------------------------------------------------
 
 
 def _collect_prose(part: dict) -> str:
@@ -89,7 +78,7 @@ def _extract_related(links: list[dict]) -> list[str]:
     related: list[str] = []
     for link in links:
         if link.get("rel") == "related":
-            # href is like "#ac-3" — strip the leading hash and uppercase
+            # href is like "#ac-3", strip the leading hash and uppercase
             ctrl_id = link["href"].lstrip("#").upper()
             related.append(ctrl_id)
     return related
@@ -152,10 +141,6 @@ def parse_catalog(catalog_data: dict) -> list[dict]:
     return controls
 
 
-# ---------------------------------------------------------------------------
-# Chunk formatting
-# ---------------------------------------------------------------------------
-
 
 def format_chunk(control: dict) -> str:
     """Format a parsed control into a text chunk for embedding.
@@ -174,10 +159,6 @@ def format_chunk(control: dict) -> str:
         f"Related: {related_str}"
     )
 
-
-# ---------------------------------------------------------------------------
-# Chroma indexing
-# ---------------------------------------------------------------------------
 
 
 def build_index(controls: list[dict]) -> None:
@@ -218,7 +199,7 @@ def build_index(controls: list[dict]) -> None:
         metadata={"description": "NIST SP 800-53 Rev 5 controls for RAG retrieval"},
     )
 
-    # Chroma has a batch size limit — insert in chunks of 500
+    # Chroma has a batch size limit, insert in chunks of 500
     batch_size = 500
     for i in range(0, len(ids), batch_size):
         end = min(i + batch_size, len(ids))
@@ -233,10 +214,6 @@ def build_index(controls: list[dict]) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# CLI entry point
-# ---------------------------------------------------------------------------
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -249,7 +226,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # idempotency check — skip if collection already populated
+    # skip if collection already populated
     if CHROMA_PATH.exists() and not args.force:
         try:
             client = chromadb.PersistentClient(path=str(CHROMA_PATH))
@@ -265,8 +242,8 @@ def main() -> None:
                     )
                     return
         except Exception:
-            # corrupted or incompatible DB — fall through to rebuild
-            logger.warning("Could not read existing Chroma DB — will rebuild")
+            # corrupted or incompatible DB, fall through to rebuild
+            logger.warning("Could not read existing Chroma DB, will rebuild")
 
     if args.force and CHROMA_PATH.exists():
         shutil.rmtree(CHROMA_PATH)
@@ -277,7 +254,7 @@ def main() -> None:
 
     if not controls:
         raise ValueError(
-            "No controls parsed from OSCAL catalog — check the download or format"
+            "No controls parsed from OSCAL catalog. Check the download or format"
         )
 
     build_index(controls)

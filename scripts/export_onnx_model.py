@@ -1,8 +1,7 @@
 """Export bge-small-en-v1.5 to ONNX for lightweight runtime inference.
 
-Runs during docker build after build_nist_index.py. Saves the ONNX model
-and tokenizer to data/processed/onnx_model/ so the runtime image can use
-onnxruntime (~60MB RAM) instead of PyTorch (~400MB RAM).
+Runs during docker build. Saves to data/processed/onnx_model/ so the
+runtime image uses onnxruntime (~60MB) instead of PyTorch (~400MB).
 """
 
 import logging
@@ -24,7 +23,7 @@ def main() -> None:
 
     onnx_path = EXPORT_DIR / "model.onnx"
     if onnx_path.exists():
-        logger.info("ONNX model already exists at %s — skipping export", onnx_path)
+        logger.info("ONNX model already exists at %s, skipping export", onnx_path)
         return
 
     logger.info("Loading %s for ONNX export", MODEL_NAME)
@@ -32,7 +31,7 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     model.eval()
 
-    # dummy input for tracing — shapes don't matter, dynamic axes handle that
+    # dummy input for tracing (shapes don't matter, dynamic axes handle that)
     dummy = tokenizer("hello world", return_tensors="pt")
 
     logger.info("Exporting to ONNX at %s", onnx_path)

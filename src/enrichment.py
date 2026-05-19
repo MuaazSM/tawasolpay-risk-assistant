@@ -1,11 +1,7 @@
 """Join all data sources into a single enriched risk DataFrame.
 
-Entry point: build_enriched_risks() -> pd.DataFrame
-
-Merges assets, vulnerabilities, business services, KEV data, threat intel,
-and parsed campaign intelligence. Each row is an (asset_id, vuln_id) pair
-enriched with: kev_match, kev_ransomware_use, threat_intel_matches,
-campaign_matches, chain_partners, missing_controls.
+Each row is an (asset_id, vuln_id) pair with KEV flags, threat intel
+matches, campaign matches, chain partners, and missing controls.
 """
 
 from __future__ import annotations
@@ -31,7 +27,7 @@ _DEFAULT_PROCESSED_DIR = Path(__file__).resolve().parent.parent / "data" / "proc
 
 _STALE_THRESHOLD_DAYS = 30
 
-# criticality ordering for max() computation — higher index = more critical
+# criticality ordering for max() computation (higher index = more critical)
 _CRITICALITY_RANK: dict[str, int] = {
     "Low": 0,
     "Medium": 1,
@@ -39,11 +35,6 @@ _CRITICALITY_RANK: dict[str, int] = {
     "Critical": 3,
 }
 _RANK_TO_CRITICALITY: dict[int, str] = {v: k for k, v in _CRITICALITY_RANK.items()}
-
-
-# ---------------------------------------------------------------------------
-# Internal loaders for reference / processed data
-# ---------------------------------------------------------------------------
 
 
 def _load_kev(ref_dir: Path = _DEFAULT_REF_DIR) -> pd.DataFrame:
@@ -55,25 +46,16 @@ def _load_kev(ref_dir: Path = _DEFAULT_REF_DIR) -> pd.DataFrame:
     path = ref_dir / "cisa_kev.csv"
     df = pd.read_csv(path, dtype=str, usecols=["cve_id", "known_ransomware_use"])
     df["kev_ransomware_use"] = df["known_ransomware_use"].str.strip().str.lower() == "known"
-    # deduplicate — KEV should have unique CVEs but defensive
+    # deduplicate (KEV should have unique CVEs, but be defensive)
     df = df.drop_duplicates(subset="cve_id", keep="first")
     return df[["cve_id", "kev_ransomware_use"]]
 
 
 def _load_campaigns(processed_dir: Path = _DEFAULT_PROCESSED_DIR) -> list[dict]:
-    """Load parsed campaign intelligence from campaigns.json.
-
-    Returns the raw list of campaign dicts, each with keys:
-    name, associated_cves, targeted_asset_types, ttps, iocs.
-    """
+    """Load parsed campaign intelligence from campaigns.json."""
     path = processed_dir / "campaigns.json"
     with open(path) as f:
         return json.load(f)
-
-
-# ---------------------------------------------------------------------------
-# Enrichment helpers
-# ---------------------------------------------------------------------------
 
 
 def _merge_assets_vulns(
@@ -90,7 +72,7 @@ def _merge_assets_vulns(
     n_dropped = n_vulns_before - len(merged)
     if n_dropped:
         logger.warning(
-            "enrichment: %d vulnerability row(s) dropped — no matching asset_id",
+            "enrichment: %d vulnerability row(s) dropped: no matching asset_id",
             n_dropped,
         )
     return merged
@@ -125,7 +107,7 @@ def _merge_business_services(
     n_missing = merged["service_revenue_impact"].isna().sum()
     if n_missing:
         logger.warning(
-            "enrichment: %d row(s) have no matching business_service — "
+            "enrichment: %d row(s) have no matching business_service, "
             "defaulting service_revenue_impact to 'Low'",
             n_missing,
         )
@@ -161,8 +143,8 @@ def _merge_kev(df: pd.DataFrame, kev: pd.DataFrame) -> pd.DataFrame:
 
     Join key: cve_id (df.cve_id == kev.cve_id).
     Adds kev_match (bool) and kev_ransomware_use (bool) columns.
-    Synthetic CVEs (CVE-SYN-*, CICD-SYN-*) will never match KEV — that's
-    expected; the threat intel and campaign data catch those.
+    Synthetic CVEs (CVE-SYN-*, CICD-SYN-*) will never match KEV.
+    That's expected; the threat intel and campaign data catch those.
     """
     merged = df.merge(kev, on="cve_id", how="left", suffixes=("", "_kev"))
 
@@ -188,7 +170,7 @@ def _add_threat_intel_matches(
         threat_intel_max_maturity: highest exploit_maturity among matches
         threat_intel_ransomware: True if any match has ransomware_association == True
     """
-    # maturity ordering — higher index = more mature / dangerous
+    # higher index = more mature / dangerous
     maturity_rank = {
         "Not Applicable": 0,
         "Social Engineering": 1,
@@ -381,11 +363,6 @@ def _compute_derived_signals(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
-
-
 def build_enriched_risks(
     data_dir: Path = _DEFAULT_DATA_DIR,
     ref_dir: Path = _DEFAULT_REF_DIR,
@@ -393,25 +370,9 @@ def build_enriched_risks(
 ) -> pd.DataFrame:
     """Build the fully enriched risk DataFrame.
 
-    Loads all data sources, performs joins, and adds derived columns.
-    Each row is one (asset_id, vuln_id) pair with all asset fields, all
-    vulnerability fields, business service context, KEV flags, threat
-    intel matches, campaign matches, chain partners, and missing controls.
-
-    Join sequence:
-        1. vulns INNER JOIN assets ON asset_id
-        2. result LEFT JOIN business_services ON business_service
-        3. result LEFT JOIN cisa_kev ON cve_id
-        4. Aggregate threat_intel matches by cve_id (+ weaponized, maturity, ransomware)
-        5. Tag campaign_matches from campaigns.json by cve_id
-        6. Compute chain_partners from campaign overlap on same asset
-        7. Flag missing_controls from asset metadata
-        8. Flag campaign_ransomware from campaign TTPs
-        9. Compute derived union signals (ransomware_match, active_exploitation_signal)
-
-    Returns:
-        DataFrame with columns matching EnrichedRisk schema fields plus
-        raw source columns for downstream use.
+    Returns a DataFrame with one row per (asset_id, vuln_id), columns
+    matching the EnrichedRisk schema. Join sequence is documented by
+    the inline step comments below.
     """
     # load all sources
     assets = load_assets(data_dir)

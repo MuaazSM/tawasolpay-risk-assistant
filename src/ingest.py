@@ -1,10 +1,4 @@
-"""Load and clean raw CSVs into typed DataFrames.
-
-One loader per CSV: assets, vulnerabilities, business_services, threat_intel,
-remediation_guidance. Handles missing owners (warn, don't drop), flags stale
-assets (last_seen_days > 30), coerces types to match schema expectations.
-Returns clean pandas DataFrames ready for the enrichment join step.
-"""
+"""Load and clean raw CSVs into typed DataFrames for the enrichment step."""
 
 from __future__ import annotations
 
@@ -15,7 +9,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# single constant for all loaders — override in tests via the data_dir parameter
+# override in tests via the data_dir parameter
 _DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "raw"
 
 # confidence strings → floats matching the 0-1 range the ThreatIntel schema expects
@@ -25,7 +19,7 @@ _CONFIDENCE_MAP: dict[str, float] = {
     "Low": 0.3,
 }
 
-# required columns per CSV — catch broken files fast
+# required columns per CSV
 _REQUIRED_ASSETS_COLS = frozenset({
     "asset_id", "asset_name", "asset_type", "owner_team",
     "business_service", "internet_exposed", "last_seen_days",
@@ -57,10 +51,6 @@ def _check_required_columns(
         )
 
 
-# ---------------------------------------------------------------------------
-# Loaders
-# ---------------------------------------------------------------------------
-
 
 def load_assets(data_dir: Path = _DEFAULT_DATA_DIR) -> pd.DataFrame:
     """Load assets.csv, coerce types, flag stale assets, warn on missing owners.
@@ -78,7 +68,7 @@ def load_assets(data_dir: Path = _DEFAULT_DATA_DIR) -> pd.DataFrame:
 
     df["last_seen_days"] = pd.to_numeric(df["last_seen_days"], errors="coerce").fillna(0).astype(int)
 
-    # flag stale assets — don't drop, the scoring engine decides what to do
+    # flag stale assets (don't drop; the scoring engine decides what to do)
     df["is_stale"] = df["last_seen_days"] > _STALE_THRESHOLD_DAYS
 
     # warn on missing owners so operators notice, but keep the rows
@@ -87,7 +77,7 @@ def load_assets(data_dir: Path = _DEFAULT_DATA_DIR) -> pd.DataFrame:
     if n_missing:
         ids = df.loc[missing_owner_mask, "asset_id"].tolist()
         logger.warning(
-            "assets.csv: %d row(s) with missing owner_team — %s",
+            "assets.csv: %d row(s) with missing owner_team: %s",
             n_missing, ids,
         )
 
@@ -114,7 +104,7 @@ def load_vulnerabilities(data_dir: Path = _DEFAULT_DATA_DIR) -> pd.DataFrame:
     bad_cvss = df["cvss"].isna()
     if bad_cvss.any():
         logger.warning(
-            "vulnerabilities.csv: %d row(s) with unparseable CVSS — set to 0.0",
+            "vulnerabilities.csv: %d row(s) with unparseable CVSS, set to 0.0",
             bad_cvss.sum(),
         )
         df.loc[bad_cvss, "cvss"] = 0.0
@@ -140,7 +130,7 @@ def load_threat_intel(data_dir: Path = _DEFAULT_DATA_DIR) -> pd.DataFrame:
     unmapped = set(df["confidence"].dropna().unique()) - set(_CONFIDENCE_MAP)
     if unmapped:
         logger.warning(
-            "threat_intelligence.csv: unknown confidence values %s — defaulting to 0.3",
+            "threat_intelligence.csv: unknown confidence values %s, defaulting to 0.3",
             sorted(unmapped),
         )
     df["confidence"] = (

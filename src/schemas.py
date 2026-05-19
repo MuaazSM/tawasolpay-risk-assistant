@@ -1,11 +1,4 @@
-"""Pydantic models for all domain objects.
-
-Defines: Asset, Vulnerability, BusinessService, ThreatIntel, Campaign,
-KevEntry, EnrichedRisk, NistControl, RiskExplanation, TopRiskOutput.
-
-Each model maps directly to a data source (CSV column or derived join).
-Validators enforce constraints: CVSS 0-10, exposure enums, non-empty IDs.
-"""
+"""Pydantic models for every domain object in the pipeline."""
 
 from __future__ import annotations
 
@@ -13,20 +6,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field, field_validator
 
-
-# ---------------------------------------------------------------------------
-# Enums as Literal types (lightweight, no separate Enum class needed)
-# ---------------------------------------------------------------------------
-
 ExposureLevel = Literal["Yes", "No"]
 Criticality = Literal["Critical", "High", "Medium", "Low"]
 ExploitMaturity = Literal["Weaponized", "PoC", "Unproven", "Not Available"]
 Tier = Literal["act_now", "act_soon", "track", "monitor"]
-
-
-# ---------------------------------------------------------------------------
-# Source data models — one per CSV
-# ---------------------------------------------------------------------------
 
 
 class Asset(BaseModel):
@@ -78,11 +61,6 @@ class ThreatIntel(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
 
 
-# ---------------------------------------------------------------------------
-# Derived / parsed data models
-# ---------------------------------------------------------------------------
-
-
 class Campaign(BaseModel):
     """Parsed from the synthetic threat report markdown."""
 
@@ -102,11 +80,6 @@ class KevEntry(BaseModel):
     vulnerability_name: str = ""
     date_added: str = ""
     ransomware_use: Literal["Known", "Unknown"] = "Unknown"
-
-
-# ---------------------------------------------------------------------------
-# Enriched risk — the join of all sources for a single (asset, vuln) pair
-# ---------------------------------------------------------------------------
 
 
 class EnrichedRisk(BaseModel):
@@ -147,14 +120,9 @@ class EnrichedRisk(BaseModel):
     chain_partners: list[str] = Field(default_factory=list)
     missing_controls: list[str] = Field(default_factory=list)
 
-    # derived union signals — computed in enrichment, consumed by scoring
+    # derived union signals (computed in enrichment, consumed by scoring)
     ransomware_match: bool = False
     active_exploitation_signal: bool = False
-
-
-# ---------------------------------------------------------------------------
-# NIST 800-53 control (from Chroma retrieval)
-# ---------------------------------------------------------------------------
 
 
 class NistControl(BaseModel):
@@ -168,13 +136,11 @@ class NistControl(BaseModel):
     related_controls: list[str] = Field(default_factory=list)
 
 
-# ---------------------------------------------------------------------------
-# LLM output models
-# ---------------------------------------------------------------------------
-
-
 class RiskExplanation(BaseModel):
-    """Structured output from the LLM explanation generator."""
+    """Structured output from the LLM explanation generator.
+
+    All cited_* fields are validated by faithfulness.py after generation.
+    """
 
     headline: str = Field(min_length=1)
     why_it_ranks_here: str = Field(min_length=1)
@@ -185,13 +151,12 @@ class RiskExplanation(BaseModel):
     recommended_actions: list[str] = Field(min_length=3, max_length=5)
 
 
-# ---------------------------------------------------------------------------
-# Final output
-# ---------------------------------------------------------------------------
-
-
 class ScoreBreakdown(BaseModel):
-    """Component-level breakdown of the within-tier score."""
+    """Component-level breakdown of the within-tier score.
+
+    Key names are consumed by the frontend (frontend/lib/types.ts).
+    Renaming a key here will break the dashboard's score bars.
+    """
 
     exposure: float = 0.0
     exploitation_evidence: float = 0.0

@@ -1,14 +1,4 @@
-"""API route definitions.
-
-GET  /health                  — Level 2 health: status, pipeline readiness,
-                                risk count, last refresh timestamp.
-GET  /risks/top?k=5           — Return top-k ranked risks with explanations.
-GET  /risk/{asset_id}/{vuln_id} — Return a single risk detail.
-POST /refresh                 — Light refresh: re-score cached enriched data
-                                without re-fetching external sources (CISA KEV,
-                                threat intel CSVs, threat report). Returns 409
-                                if a refresh is already in progress.
-"""
+"""API route definitions: /health, /risks/top, /risk/{id}/{id}, /refresh."""
 
 from __future__ import annotations
 
@@ -26,10 +16,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# ---------------------------------------------------------------------------
-# Dependency: typed accessor with 503 guard
-# ---------------------------------------------------------------------------
-
 
 def get_pipeline_results(request: Request) -> list[TopRiskOutput]:
     """Return cached pipeline results or 503 if the pipeline hasn't run yet.
@@ -46,16 +32,12 @@ def get_pipeline_results(request: Request) -> list[TopRiskOutput]:
     return results
 
 
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-
 
 @router.get("/health")
 async def health(request: Request) -> dict:
     """Level 2 health check with pipeline metadata.
 
-    Always returns 200 — use pipeline_ready to distinguish between a
+    Always returns 200. Use pipeline_ready to distinguish between a
     healthy server that's still initializing and one that's fully ready.
     """
     ready = request.app.state.pipeline_results is not None
@@ -76,12 +58,7 @@ async def get_top_risks(
     results: list[TopRiskOutput] = Depends(get_pipeline_results),
     k: int = Query(default=5, ge=1, le=50),
 ) -> list[TopRiskOutput]:
-    """Return the top-k ranked cyber risks with full explanations.
-
-    Args:
-        k: Number of risks to return (1-50, default 5). If k exceeds the
-           number of available results, returns all available.
-    """
+    """Return the top-k ranked cyber risks with full explanations."""
     return results[:k]
 
 
@@ -123,7 +100,7 @@ async def refresh(request: Request) -> dict:
     """
     lock: asyncio.Lock = request.app.state.refresh_lock
 
-    # asyncio is single-threaded — no race between locked() check and acquire
+    # asyncio is single-threaded, no race between locked() check and acquire
     if lock.locked():
         raise HTTPException(
             status_code=409,
@@ -145,7 +122,7 @@ async def refresh(request: Request) -> dict:
             (r.asset_id, r.vuln_id): r for r in results
         }
         request.app.state.last_refresh = datetime.now(timezone.utc)
-        logger.info("refresh: complete — %d risks updated", len(results))
+        logger.info("refresh: complete, %d risks updated", len(results))
 
     return {
         "status": "refreshed",

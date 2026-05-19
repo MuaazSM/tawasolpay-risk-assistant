@@ -1,11 +1,4 @@
-"""Validate LLM explanations against the evidence packet.
-
-Entry point: validate_faithfulness(explanation, risk, retrieved_controls)
-
-Checks every citation in the LLM output against allowlists derived from
-the risk's evidence packet and retrieved NIST controls. Returns (passed,
-violations) so callers can retry with violations injected into the prompt.
-"""
+"""Validate LLM explanation citations against the evidence packet."""
 
 import logging
 
@@ -19,23 +12,11 @@ def validate_faithfulness(
     risk: EnrichedRisk,
     retrieved_controls: list[NistControl],
 ) -> tuple[bool, list[str]]:
-    """Check that every citation in the explanation traces to evidence.
-
-    Args:
-        explanation: The LLM-generated explanation to validate.
-        risk: The enriched risk row that was explained.
-        retrieved_controls: NIST controls retrieved for this risk.
-
-    Returns:
-        A tuple of (passed, violations). If passed is True, violations
-        is an empty list.
-    """
+    """Check that every citation in the explanation traces to evidence."""
     violations: list[str] = []
 
-    # --- CVE check ---
-    # The risk's own CVE plus chain partners (same-campaign CVEs on same asset)
-    # are valid citations. threat_intel_matches contains TI row IDs (e.g.
-    # TI-3001), not CVEs, so they don't belong in the CVE allowlist.
+    # the risk's own CVE plus chain partners are valid citations.
+    # threat_intel_matches contains TI row IDs (e.g. TI-3001), not CVEs.
     allowed_cves = {risk.cve_id} | set(risk.chain_partners)
     bad_cves = set(explanation.cited_cves) - allowed_cves
     if bad_cves:
@@ -44,7 +25,6 @@ def validate_faithfulness(
             f"Allowed: {sorted(allowed_cves)}"
         )
 
-    # --- Campaign check ---
     allowed_campaigns = set(risk.campaign_matches)
     bad_campaigns = set(explanation.cited_campaigns) - allowed_campaigns
     if bad_campaigns:
@@ -53,7 +33,6 @@ def validate_faithfulness(
             f"Allowed: {sorted(allowed_campaigns)}"
         )
 
-    # --- Control check ---
     allowed_controls = {c.control_id for c in retrieved_controls}
     bad_controls = set(explanation.cited_controls) - allowed_controls
     if bad_controls:
@@ -62,7 +41,6 @@ def validate_faithfulness(
             f"Allowed: {sorted(allowed_controls)}"
         )
 
-    # --- Non-empty checks ---
     if not explanation.cited_cves:
         violations.append("cited_cves must not be empty.")
     if not explanation.cited_campaigns and risk.campaign_matches:
@@ -74,7 +52,6 @@ def validate_faithfulness(
     if not explanation.cited_controls:
         violations.append("cited_controls must not be empty.")
 
-    # --- Recommended actions count (3-5) ---
     n_actions = len(explanation.recommended_actions)
     if n_actions < 3 or n_actions > 5:
         violations.append(

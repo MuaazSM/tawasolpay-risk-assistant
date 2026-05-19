@@ -1,16 +1,8 @@
 """Deterministic tier assignment and weighted scoring.
 
-Entry point: score_risks(enriched: pd.DataFrame) -> pd.DataFrame
-
-Two-stage ranking:
-1. Tier gates (act_now / act_soon / track / monitor) based on exposure,
-   exploitation signals, ransomware association, and business criticality.
-2. Within-tier weighted score (0-100) from: exposure, exploitation evidence,
-   ransomware, business criticality, missing controls, CVSS, days_open.
-   Chain bonus (+15) for assets with exploit-chain partners.
-
-Output is sorted by tier rank then score descending, with a score_breakdown
-column for full auditability.
+Two stages: tier gates first (act_now / act_soon / track / monitor),
+then a 0-100 weighted score to break ties within each tier. See
+docs/DESIGN.md sections 2-3 for the full rationale.
 """
 
 from __future__ import annotations
@@ -21,11 +13,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-# tier rank for sorting — lower rank = more urgent
+# lower rank = more urgent
 _TIER_RANK: dict[str, int] = {
     "act_now": 0,
     "act_soon": 1,
@@ -35,7 +23,7 @@ _TIER_RANK: dict[str, int] = {
 
 # within-tier score weights (sum to 85 before chain bonus, so max with
 # chain bonus = 100).
-# CVSS is intentionally low (5) — it captures technical severity but not
+# CVSS is intentionally low (5) because it captures technical severity but not
 # operational context. missing_controls is higher (10) because control gaps
 # (no EDR, stale asset, no owner) represent real defensive failures the
 # organization can act on, not just a vendor-assigned number.
@@ -59,13 +47,8 @@ _CRITICALITY_SCORE: dict[str, float] = {
     "Low": 0.1,
 }
 
-# days_open normalization cap — anything above this scores 1.0
+# anything above this scores 1.0
 _DAYS_OPEN_CAP = 180
-
-
-# ---------------------------------------------------------------------------
-# Tier assignment
-# ---------------------------------------------------------------------------
 
 
 def _assign_tier(row: pd.Series) -> str:
@@ -118,11 +101,6 @@ def _assign_tier(row: pd.Series) -> str:
     return "monitor"
 
 
-# ---------------------------------------------------------------------------
-# Within-tier weighted score
-# ---------------------------------------------------------------------------
-
-
 def _compute_score(row: pd.Series) -> dict:
     """Compute the 0-100 weighted score and return a breakdown dict.
 
@@ -131,12 +109,12 @@ def _compute_score(row: pd.Series) -> dict:
     """
     breakdown: dict[str, float] = {}
 
-    # exposure: binary — internet-exposed or not
+    # exposure: binary, internet-exposed or not
     exposed = 1.0 if row["internet_exposed"] == "Yes" else 0.0
     breakdown["exposure"] = round(exposed * _WEIGHTS["exposure"], 2)
 
     # exploitation evidence: fractional based on how many sources fire
-    # kev_match, threat_intel_weaponized, campaign_match — each worth 1/3
+    # kev_match, threat_intel_weaponized, campaign_match: each worth 1/3
     evidence_signals = sum([
         bool(row["kev_match"]),
         bool(row["threat_intel_weaponized"]),
@@ -156,7 +134,7 @@ def _compute_score(row: pd.Series) -> dict:
         crit_fraction * _WEIGHTS["business_criticality"], 2
     )
 
-    # missing controls: fractional — each gap adds 1/3 up to 1.0
+    # missing controls: fractional, each gap adds 1/3 up to 1.0
     # possible gaps: no_edr, stale_asset, no_owner
     n_gaps = min(len(row["missing_controls"]), 3)
     breakdown["missing_controls"] = round(
@@ -179,11 +157,6 @@ def _compute_score(row: pd.Series) -> dict:
     breakdown["total"] = round(sum(breakdown.values()), 2)
 
     return breakdown
-
-
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
 
 
 def score_risks(enriched: pd.DataFrame) -> pd.DataFrame:

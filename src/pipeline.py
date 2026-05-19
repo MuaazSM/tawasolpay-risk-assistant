@@ -1,13 +1,4 @@
-"""End-to-end pipeline orchestrator.
-
-Entry point: run_pipeline(top_k: int = 5) -> list[TopRiskOutput]
-
-Steps: load -> enrich -> score -> take top-k -> for each: retrieve NIST
-controls + generate explanation + validate faithfulness -> return.
-
-Includes timing logs per step and a --cache flag to pickle intermediates
-to data/processed/ for faster iteration during development.
-"""
+"""End-to-end pipeline: enrich, score, retrieve controls, explain, validate."""
 
 from __future__ import annotations
 
@@ -38,10 +29,6 @@ _CACHE_DIR = _PROJECT_ROOT / "data" / "processed"
 _ENRICHED_CACHE = _CACHE_DIR / "enriched_cache.pkl"
 _SCORED_CACHE = _CACHE_DIR / "scored_cache.pkl"
 
-
-# ---------------------------------------------------------------------------
-# DataFrame row -> Pydantic model conversion
-# ---------------------------------------------------------------------------
 
 
 def _row_to_enriched_risk(row: pd.Series) -> EnrichedRisk:
@@ -102,10 +89,6 @@ def _load_campaigns() -> list[Campaign]:
     return [Campaign(**c) for c in raw]
 
 
-# ---------------------------------------------------------------------------
-# Timing helper
-# ---------------------------------------------------------------------------
-
 
 def _timed(label: str):
     """Context manager that logs elapsed time for a pipeline step."""
@@ -122,10 +105,6 @@ def _timed(label: str):
     return Timer()
 
 
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
-
 
 def run_pipeline(
     top_k: int = 5,
@@ -141,7 +120,7 @@ def run_pipeline(
         light_refresh: If True, re-use cached enriched data but re-run
             scoring and explanation generation. Does not re-fetch external
             data (CISA KEV, threat intel CSVs, threat report). Requires
-            an existing enriched cache — raises ValueError if missing.
+            an existing enriched cache. Raises ValueError if missing.
             Implies use_cache=True for enrichment loading.
 
     Returns:
@@ -156,7 +135,7 @@ def run_pipeline(
             )
         use_cache = True
 
-    # --- Step 1: Enrich ---
+    # step 1: enrich
     if use_cache and _ENRICHED_CACHE.exists():
         logger.info("pipeline: loading enriched cache from %s", _ENRICHED_CACHE)
         with open(_ENRICHED_CACHE, "rb") as f:
@@ -169,7 +148,7 @@ def run_pipeline(
                 pickle.dump(enriched, f)
             logger.info("pipeline: cached enriched to %s", _ENRICHED_CACHE)
 
-    # --- Step 2: Score ---
+    # step 2: score
     # light_refresh always re-scores to pick up scoring formula changes
     if use_cache and not light_refresh and _SCORED_CACHE.exists():
         logger.info("pipeline: loading scored cache from %s", _SCORED_CACHE)
@@ -183,7 +162,7 @@ def run_pipeline(
                 pickle.dump(scored, f)
             logger.info("pipeline: cached scored to %s", _SCORED_CACHE)
 
-    # --- Step 3: Take top-k ---
+    # step 3: take top-k
     top_rows = scored.head(top_k)
     logger.info(
         "pipeline: selected top %d risks (tiers: %s)",
@@ -191,10 +170,10 @@ def run_pipeline(
         top_rows["tier"].tolist(),
     )
 
-    # --- Step 4: Load campaigns for explanation context ---
+    # step 4: load campaigns for explanation context
     campaigns = _load_campaigns()
 
-    # --- Step 5: For each top risk, retrieve + explain + validate ---
+    # step 5: for each top risk, retrieve + explain + validate
     results: list[TopRiskOutput] = []
 
     for rank_idx, (_, row) in enumerate(top_rows.iterrows(), start=1):
@@ -227,7 +206,7 @@ def run_pipeline(
         results.append(output)
 
         logger.info(
-            "pipeline: risk #%d — %s on %s — tier=%s score=%.1f faithfulness=%s",
+            "pipeline: risk #%d %s on %s, tier=%s score=%.1f faithfulness=%s",
             rank_idx,
             risk.cve_id,
             risk.asset_name,
@@ -238,10 +217,6 @@ def run_pipeline(
 
     return results
 
-
-# ---------------------------------------------------------------------------
-# CLI entry point
-# ---------------------------------------------------------------------------
 
 
 if __name__ == "__main__":

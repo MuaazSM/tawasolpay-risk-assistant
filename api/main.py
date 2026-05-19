@@ -1,9 +1,4 @@
-"""FastAPI application entry point.
-
-Endpoints: GET /health, GET /risks/top, GET /risk/{asset_id}/{vuln_id},
-POST /refresh. On startup, runs the pipeline once and caches results
-in memory. CORS configured via CORS_ORIGIN env var (comma-separated).
-"""
+"""FastAPI application entry point."""
 
 from __future__ import annotations
 
@@ -37,7 +32,7 @@ async def lifespan(app: FastAPI):
 
     Runs the full pipeline once, caches results and a lookup index on
     app.state. If the pipeline fails, the exception is logged and
-    re-raised so the process exits with a non-zero code — Render (or
+    re-raised so the process exits with a non-zero code. Render (or
     any process supervisor) will see the failed startup and stop the
     deploy.
     """
@@ -55,10 +50,10 @@ async def lifespan(app: FastAPI):
         }
         app.state.last_refresh = datetime.now(timezone.utc)
         logger.info(
-            "startup: pipeline ready — %d risks cached", len(results),
+            "startup: pipeline ready, %d risks cached", len(results),
         )
     except Exception:
-        logger.exception("startup: pipeline failed — aborting")
+        logger.exception("startup: pipeline failed, aborting")
         raise
 
     yield
@@ -73,10 +68,6 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
-
-# ---------------------------------------------------------------------------
-# CORS — origins from env var, explicit methods, no wildcards
-# ---------------------------------------------------------------------------
 
 _cors_raw = os.environ.get("CORS_ORIGIN", "http://localhost:3000")
 _cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]

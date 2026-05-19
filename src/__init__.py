@@ -1,1 +1,1 @@
-"""TawasolPay Cyber Risk Assistant — core package."""
+"""TawasolPay Cyber Risk Assistant - core package."""

@@ -1,23 +1,7 @@
 """Retrieve NIST 800-53 controls for a given enriched risk.
 
-Entry point: retrieve_controls_for_risk(risk, k) -> list[NistControl]
-
-Uses a two-query strategy — all deterministic, no LLM involvement:
-
-1. Primary query: built from vulnerability description, asset type, asset
-   name, campaign names, and missing-control keywords. Captures full context
-   but uses vendor/exploit vocabulary that may not match NIST prose.
-2. Focused query: short, uses only NIST vocabulary (e.g., "identify and
-   authenticate organizational users" for auth bypass risks). Targets the
-   correct base controls that the primary query misses due to vocabulary gap.
-
-Results from both queries are combined via round-robin interleave with a
-small family-boost (+0.03 similarity) for controls whose NIST family aligns
-with the risk's keywords. Family boost reranks within close-similarity
-matches; without it, the same controls appear in top-5 but in slightly
-different order for ~1/3 of risk types. Kept because the cost is trivial
-and the rank improvement is visible in golden tests (e.g., promotes CM-8.2
-for stale-asset risks).
+Two-query strategy (primary + focused) with round-robin interleave
+and family-boost reranking. All deterministic, no LLM involvement.
 """
 
 from __future__ import annotations
@@ -39,9 +23,6 @@ _CHROMA_PATH = _PROJECT_ROOT / "data" / "processed" / "nist_chroma"
 _COLLECTION_NAME = "nist_800_53_r5"
 _EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 
-# ---------------------------------------------------------------------------
-# Family-boost mapping
-# ---------------------------------------------------------------------------
 # Maps keywords (found in vulnerability description or asset type) to NIST
 # control families that are especially relevant. The boost is additive to
 # the similarity score (Chroma returns cosine distance; lower = closer).
@@ -95,10 +76,6 @@ _KEYWORD_TO_FAMILIES: dict[str, list[str]] = {
     "stale": ["Configuration Management"],
 }
 
-# ---------------------------------------------------------------------------
-# Singleton loaders — embedding model and Chroma collection
-# ---------------------------------------------------------------------------
-
 _ONNX_MODEL_DIR = _PROJECT_ROOT / "data" / "processed" / "onnx_model"
 
 
@@ -140,7 +117,7 @@ class OnnxEmbedder:
         # output shape: [1, seq_len, 384]
         last_hidden_state = self._session.run(None, feeds)[0]
 
-        # CLS pooling — bge-small uses the first token's embedding
+        # CLS pooling: bge-small uses the first token's embedding
         embedding = last_hidden_state[0, 0, :]
 
         if normalize_embeddings:
@@ -168,7 +145,7 @@ def _get_embedding_model() -> OnnxEmbedder:
             logger.info("Loading ONNX embedding model from %s", _ONNX_MODEL_DIR)
             _model = OnnxEmbedder(_ONNX_MODEL_DIR)
         else:
-            # local dev fallback — sentence-transformers with full PyTorch
+            # local dev fallback: sentence-transformers with full PyTorch
             logger.info(
                 "ONNX model not found at %s, falling back to SentenceTransformer",
                 onnx_path,
@@ -195,11 +172,6 @@ def _get_collection() -> chromadb.Collection:
             _collection.count(),
         )
     return _collection
-
-
-# ---------------------------------------------------------------------------
-# Query construction — deterministic, no LLM
-# ---------------------------------------------------------------------------
 
 
 def build_query(risk: EnrichedRisk) -> str:
@@ -305,11 +277,11 @@ def build_focused_query(risk: EnrichedRisk) -> str | None:
 
     Returns None if the vulnerability description doesn't match any known
     pattern. When it does match, the returned query uses only NIST prose
-    vocabulary — no vendor names, no CVE jargon — so the embedding model
+    vocabulary (no vendor names, no CVE jargon) so the embedding model
     lands directly on the correct base controls.
 
-    This is the second leg of a two-query retrieval strategy. The primary
-    query (build_query) captures full context; this one targets precision.
+    The primary query (build_query) captures full context; this one
+    targets precision.
     """
     desc_lower = risk.description.lower()
     for patterns, focused in _VULN_TYPE_FOCUSED_QUERIES:
@@ -318,10 +290,6 @@ def build_focused_query(risk: EnrichedRisk) -> str | None:
             return focused
     return None
 
-
-# ---------------------------------------------------------------------------
-# Family boost logic
-# ---------------------------------------------------------------------------
 
 
 def _compute_family_boosts(risk: EnrichedRisk) -> set[str]:
@@ -349,17 +317,13 @@ def _compute_family_boosts(risk: EnrichedRisk) -> set[str]:
     return boosted_families
 
 
-# ---------------------------------------------------------------------------
-# Document parsing — extract structured fields from Chroma document text
-# ---------------------------------------------------------------------------
-
 
 def _parse_document(doc: str) -> dict[str, str | list[str]]:
     """Parse a Chroma document back into structured fields.
 
     The document was stored in the format produced by
-    scripts/build_nist_index.py:format_chunk — a newline-separated block
-    with labeled fields.
+    scripts/build_nist_index.py:format_chunk (a newline-separated block
+    with labeled fields).
     """
     fields: dict[str, str] = {}
     current_key = ""
@@ -392,10 +356,6 @@ def _parse_document(doc: str) -> dict[str, str | list[str]]:
     }
 
 
-# ---------------------------------------------------------------------------
-# Main retrieval entry point
-# ---------------------------------------------------------------------------
-
 
 def _query_chroma(
     collection: chromadb.Collection,
@@ -418,32 +378,11 @@ def retrieve_controls_for_risk(
 ) -> list[NistControl]:
     """Retrieve the top-k NIST 800-53 controls relevant to a risk.
 
-    Uses a two-query strategy to bridge the vocabulary gap between CVE
-    descriptions and NIST control prose:
-
-    1. **Primary query** — full context (description, asset type, campaigns).
-       Captures broad relevance but vendor jargon can drown out base controls.
-    2. **Focused query** — short, uses only NIST vocabulary (e.g., "identify
-       and authenticate organizational users" for auth bypass risks). Ensures
-       base controls like IA-2 and SI-2 surface even when the primary query
-       is dominated by product-specific terms.
-
-    Results are combined via **round-robin interleave**: we alternate picks
-    from each query's ranked list, skipping duplicates. This guarantees both
-    queries contribute to the final top-k rather than one dominating by
-    virtue of higher absolute similarity scores (focused queries produce
-    higher scores because they're shorter and more targeted, but that
-    doesn't mean primary-query results are less relevant).
-
-    Family boost (+0.03) is applied within each query's ranking before
-    interleaving.
-
-    Args:
-        risk: An enriched risk from the scoring pipeline.
-        k: Number of controls to return (default 3).
-
-    Returns:
-        List of NistControl objects sorted by relevance (best first).
+    Two queries bridge the vocabulary gap between CVE descriptions and
+    NIST prose: a primary query (full context, vendor jargon) and a
+    focused query (NIST vocabulary only). Results are combined via
+    round-robin interleave so both queries contribute to the final
+    top-k. Family boost (+0.03) is applied before interleaving.
     """
     collection = _get_collection()
     model = _get_embedding_model()
@@ -467,7 +406,7 @@ def retrieve_controls_for_risk(
         scored.sort(key=lambda x: x[0], reverse=True)
         return scored
 
-    # primary query — over-fetch to give boost room to promote
+    # over-fetch to give family boost room to promote relevant controls
     primary_n = min(k * 5, collection.count())
     p_distances, p_documents, p_metadatas = _query_chroma(
         collection, model, primary_query, primary_n

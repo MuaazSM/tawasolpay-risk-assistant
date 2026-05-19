@@ -1,9 +1,4 @@
-"""Parse the synthetic MDR threat report markdown into structured JSON.
-
-Regex-parses campaign names, associated CVEs, targeted asset types, TTPs,
-and IOCs from the markdown report. Writes data/processed/campaigns.json.
-Idempotent — safe to re-run.
-"""
+"""Parse the synthetic MDR threat report into data/processed/campaigns.json."""
 
 import json
 import logging
@@ -25,9 +20,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 REPORT_PATH = PROJECT_ROOT / "data" / "raw" / "synthetic_threat_report.md"
 OUTPUT_PATH = PROJECT_ROOT / "data" / "processed" / "campaigns.json"
 
-# Matches campaign section headers: ### N. ActorName — "CampaignName"
-# Handles em-dash (—), en-dash (–), or hyphen (-) as separator.
-# Handles curly quotes (\u201c \u201d) and straight quotes.
+# matches campaign section headers: ### N. ActorName - "CampaignName"
+# handles em-dash, en-dash, or hyphen as separator, curly or straight quotes
 SECTION_HEADER = re.compile(
     r'^###\s+\d+\.\s+(.+?)\s*[\u2014\u2013\-]\s*[\u201c""](.+?)[\u201d""]',
     re.MULTILINE,

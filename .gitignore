@@ -48,3 +48,4 @@ docs/
 .claude/
 tests/
 .gstack/
+scripts/build_docx.py

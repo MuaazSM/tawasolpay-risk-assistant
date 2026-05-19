@@ -1,18 +1,4 @@
-"""Generate structured risk explanations via LLM.
-
-Entry point: generate_explanation(risk, controls, campaigns) -> (RiskExplanation, list[str])
-
-Constructs a prompt containing the full risk evidence packet, retrieved NIST
-control texts, and relevant campaign data. Output schema: headline,
-why_it_ranks_here, business_impact, cited_cves, cited_campaigns,
-cited_controls, recommended_actions. Strict citation rules enforced in
-prompt with few-shot examples of good vs hallucinated output.
-
-After generation, the faithfulness checker validates all citations against the
-evidence packet. On failure, one retry is attempted with violations injected
-into the prompt. If the retry also fails, the explanation is returned with a
-faithfulness_failed flag.
-"""
+"""Generate structured risk explanations via LLM with faithfulness validation."""
 
 import logging
 
@@ -21,11 +7,6 @@ from .llm_client import generate_structured
 from .schemas import Campaign, EnrichedRisk, NistControl, RiskExplanation
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Prompt construction helpers
-# ---------------------------------------------------------------------------
 
 
 def _build_evidence_block(risk: EnrichedRisk) -> str:
@@ -115,7 +96,7 @@ def _build_allowlists(
     controls: list[NistControl],
 ) -> str:
     """Explicit allowlists so the LLM knows exactly what it may cite."""
-    # chain_partners are same-campaign CVEs on the same asset — valid citations
+    # chain_partners are same-campaign CVEs on the same asset, valid citations
     # that let the LLM describe the full attack chain
     allowed_cves = sorted({risk.cve_id} | set(risk.chain_partners))
     allowed_campaigns = sorted(set(risk.campaign_matches))
@@ -128,10 +109,6 @@ def _build_allowlists(
         f"Allowed control IDs: {allowed_controls}"
     )
 
-
-# ---------------------------------------------------------------------------
-# Few-shot examples — baked into prompt to steer citation behavior
-# ---------------------------------------------------------------------------
 
 _FEW_SHOT = """
 === EXAMPLE: GOOD OUTPUT (follow this pattern) ===
@@ -164,10 +141,6 @@ PROBLEMS: CVE-2023-44228 was NOT in the evidence. "APT29" was NOT a matched camp
 """.strip()
 
 
-# ---------------------------------------------------------------------------
-# System prompt
-# ---------------------------------------------------------------------------
-
 _SYSTEM_PROMPT = """You are a cybersecurity risk analyst writing a structured explanation for why a specific risk ranks in the top 5 for a fintech company. You will be given:
 
 1. A RISK EVIDENCE PACKET with asset details, vulnerability info, threat signals, and missing controls.
@@ -189,10 +162,6 @@ If the evidence packet has no campaign matches, cited_campaigns should contain o
 Write precisely. Every claim must trace back to the evidence provided. Hallucinating entities not in the evidence is a failure."""
 
 
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
-
 
 def _build_retry_prompt(base_prompt: str, violations: list[str]) -> str:
     """Append faithfulness violations to the prompt for a correction retry."""
@@ -212,32 +181,11 @@ def generate_explanation(
     controls: list[NistControl],
     campaigns: list[Campaign],
 ) -> tuple[RiskExplanation, list[str]]:
-    """Generate an LLM-written explanation for a single scored risk.
+    """Generate an LLM explanation for a single scored risk.
 
-    Constructs a prompt from the risk evidence, retrieved NIST controls,
-    and matched campaign data, then calls the LLM with strict citation
-    rules. The response is validated against the RiskExplanation schema
-    and checked for faithfulness to the evidence packet.
-
-    If the faithfulness check fails, one retry is attempted with violations
-    injected into the prompt. If the retry also fails, the explanation is
-    returned anyway with the violation list so the caller can surface them.
-
-    Args:
-        risk: A single enriched risk row (output of enrichment + scoring).
-        controls: NIST 800-53 controls retrieved for this risk.
-        campaigns: All parsed campaigns; only those matching the risk are
-            included in the prompt.
-
-    Returns:
-        A tuple of (explanation, faithfulness_violations). An empty list
-        means all citations checked out. A non-empty list contains human-
-        readable descriptions of each violation.
-
-    Raises:
-        pydantic.ValidationError: If the LLM output fails schema validation
-            (e.g., fewer than 3 recommended_actions).
-        RuntimeError: If both LLM providers fail.
+    Returns (explanation, faithfulness_violations). Empty violations
+    list means all citations checked out. On faithfulness failure,
+    one retry is attempted with violations injected into the prompt.
     """
     evidence = _build_evidence_block(risk)
     controls_text = _build_controls_block(controls)
@@ -263,14 +211,13 @@ def generate_explanation(
         len(controls),
     )
 
-    # --- First attempt ---
     explanation = generate_structured(base_prompt, RiskExplanation)
     passed, violations = validate_faithfulness(explanation, risk, controls)
 
     if passed:
         return explanation, []
 
-    # --- Retry once with violations injected ---
+    # retry once with violations injected
     logger.info(
         "Retrying explanation for %s on %s (%d violations)",
         risk.cve_id,
@@ -287,7 +234,7 @@ def generate_explanation(
         )
         return explanation, []
 
-    # --- Both attempts failed — return with violations ---
+    # both attempts failed, return with violations
     logger.error(
         "Faithfulness check failed after retry for %s on %s: %s",
         risk.cve_id,

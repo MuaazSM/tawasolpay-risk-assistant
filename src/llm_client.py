@@ -1,13 +1,6 @@
-"""LLM client with primary/fallback strategy.
+"""LLM client: Gemini 2.5 Flash primary, Groq Llama 3.3 70B fallback.
 
-Entry point: generate_structured(prompt, schema, temperature) -> BaseModel instance.
-
-Primary: Gemini 2.5 Flash via google-generativeai SDK with native JSON schema
-enforcement (response_mime_type="application/json", response_schema=schema).
-Fallback: Groq (Llama 3.3 70B) with JSON mode + Pydantic validation on our side.
-
-Both API keys loaded from environment at first call. Logs which provider served
-each request so we can monitor fallback frequency.
+All responses are Pydantic-validated regardless of provider.
 """
 
 import json
@@ -18,11 +11,7 @@ from pydantic import BaseModel, ValidationError
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Lazy-initialized clients (avoids import-time side effects and missing keys
-# crashing unrelated tests)
-# ---------------------------------------------------------------------------
-
+# lazy-initialized to avoid import-time side effects
 _gemini_model = None
 _groq_client = None
 
@@ -52,11 +41,6 @@ def _get_groq_client():
             raise RuntimeError("GROQ_API_KEY not set in environment")
         _groq_client = Groq(api_key=api_key)
     return _groq_client
-
-
-# ---------------------------------------------------------------------------
-# Provider-specific generation
-# ---------------------------------------------------------------------------
 
 
 def _strip_unsupported_schema_fields(obj):
@@ -91,7 +75,7 @@ def _generate_gemini(prompt: str, schema: type[BaseModel], temperature: float) -
     model = _get_gemini_model()
 
     # Gemini's response_schema rejects Pydantic constraint fields (minLength,
-    # maxItems, etc.). Strip them — we still validate via Pydantic afterward.
+    # maxItems, etc.). Strip them; we still validate via Pydantic afterward.
     clean_schema = _strip_unsupported_schema_fields(schema.model_json_schema())
 
     config = genai.GenerationConfig(
@@ -131,11 +115,6 @@ def _generate_groq(prompt: str, schema: type[BaseModel], temperature: float) -> 
     return schema.model_validate(parsed)
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
 def generate_structured(
     prompt: str,
     schema: type[BaseModel],
@@ -143,21 +122,8 @@ def generate_structured(
 ) -> BaseModel:
     """Generate a structured LLM response validated against a Pydantic schema.
 
-    Tries Gemini 2.5 Flash first. On any failure (rate limit, network error,
-    malformed response, validation error), falls back to Groq Llama 3.3 70B.
-    If both providers fail, raises the Groq exception.
-
-    Args:
-        prompt: The full prompt to send to the LLM.
-        schema: A Pydantic BaseModel subclass defining the expected output shape.
-        temperature: Sampling temperature. Low by default for deterministic explanations.
-
-    Returns:
-        An instance of `schema` populated with the LLM's response.
-
-    Raises:
-        RuntimeError: If the required API key env var is missing for both providers.
-        Exception: If both Gemini and Groq fail, the Groq exception is raised.
+    Tries Gemini first. On any failure, falls back to Groq. If both fail,
+    raises the Groq exception.
     """
     # Try Gemini first
     try:
