@@ -122,8 +122,8 @@ function Footer() {
             CISA Known Exploited Vulnerabilities catalog, NIST SP 800-53
             Rev 5, internal asset/vulnerability inventory, MDR threat
             advisory. See{" "}
-            <code className="font-mono text-ink-muted">docs/DESIGN.md</code>{" "}
-            in the repo for full architecture.
+            <a href="https://github.com/MuaazSM/tawasolpay-risk-assistant/blob/main/README.md" target="_blank" rel="noopener noreferrer" className="text-ink-muted underline hover:text-ink-default">README.md</a>{" "}
+            for architecture and decisions.
           </p>
         </div>
       </div>
